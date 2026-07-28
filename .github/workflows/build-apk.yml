@@ -63,7 +63,20 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
           set -o pipefail
-          yes | flet build apk --verbose --split-per-abi 2>&1 | tee build_log.txt
+          ok=0
+          for i in 1 2 3; do
+            echo "===== flet build 尝试 $i/3 ====="
+            if yes | flet build apk --verbose --split-per-abi 2>&1 | tee -a build_log.txt; then
+              ok=1
+              break
+            fi
+            echo "第 $i 次构建失败，10 秒后重试..."
+            sleep 10
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "三次构建均失败"
+            exit 1
+          fi
 
       - name: 上传构建日志（无论成功失败，便于排查真正的 Gradle 报错）
         if: always()
