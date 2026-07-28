@@ -62,10 +62,20 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
-          set -o pipefail
-          # 注意：不要加 `yes |` 前缀！flet 退出后 yes 收到 SIGPIPE(退出码141)，
-          # 配合 pipefail 会把"成功"误判为"失败"，导致整步红掉、APK 传不出。
-          flet build apk --verbose --split-per-abi 2>&1 | tee build_log.txt
+          # flet 每次跑都会发现 Flutter SDK 未装并弹 "Proceed? [y/n]" 交互确认，
+          # CI 无 TTY，必须用 yes 自动回答（否则 EOFError 崩溃）。
+          # 注意：不能开 pipefail —— yes 在 flet 退出后会吃 SIGPIPE(退出码141)，
+          # 会污染整条管道的退出码，把"成功"误判成"失败"。
+          # 因此这里直接取管道中 flet（yes | flet | tee 的第二个命令）的真实退出码
+          # PIPESTATUS[1]；yes 的 SIGPIPE 在 [0] 被我们忽略。
+          set +o pipefail
+          yes | flet build apk --verbose --split-per-abi 2>&1 | tee build_log.txt
+          rc=${PIPESTATUS[1]}
+          if [ "$rc" -ne 0 ]; then
+            echo "flet build apk 失败，flet 退出码=$rc"
+            exit "$rc"
+          fi
+          echo "flet build apk 成功"
 
       - name: 上传构建日志（无论成功失败，便于排查真正的 Gradle 报错）
         if: always()
