@@ -5,7 +5,6 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import webbrowser
-import flet_webview as fwv
 
 from common import MD_HEADER_SHADOW, close_dialog, open_dialog, show_toast
 from storage import (
@@ -388,16 +387,10 @@ def main(page: ft.Page):
         # 跨环境路径解析：打包后用 FLET_ASSETS_DIR，本地回退到 项目根/assets
         assets_dir = os.environ.get("FLET_ASSETS_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
         html_path = os.path.join(assets_dir, "help.html")
-        # flet_webview.WebView 仅支持 Android/iOS/macOS/Web；Windows/Linux 桌面不支持
-        # 桌面端改用系统默认浏览器打开帮助（手机/Web 才用应用内 WebView 内嵌）
-        supports_inapp = bool(getattr(page, "web", False)) or (
-            page.platform in (
-                ft.PagePlatform.ANDROID,
-                ft.PagePlatform.IOS,
-                ft.PagePlatform.MACOS,
-            )
-        )
-        if not supports_inapp:
+
+        # 桌面端（Windows/Linux）直接用系统浏览器打开，避免依赖 flet_webview
+        is_desktop = page.platform in (ft.PagePlatform.WINDOWS, ft.PagePlatform.LINUX)
+        if is_desktop:
             try:
                 webbrowser.open("file://" + html_path)
                 show_toast(page, "已在系统浏览器中打开帮助")
@@ -405,28 +398,44 @@ def main(page: ft.Page):
                 show_toast(page, "无法打开帮助文件")
             return
 
+        # 移动端（Android/iOS）与 macOS：优先应用内 WebView 内嵌显示帮助。
+        # flet_webview 仅在这些平台受支持且需打包进 APK；懒加载并加保护：
+        # 若未打包/插件缺失导致不可用，退回系统浏览器，保证 app 不崩。
+        wv = None
         try:
-            with open(html_path, "r", encoding="utf-8", errors="ignore") as _hf:
-                html_content = _hf.read()
+            import flet_webview as fwv  # 懒加载，避免顶层 import 致启动即崩溃
+            wv = fwv.WebView(url="file://" + html_path, expand=True)
         except Exception:
-            html_content = "<h2 style='padding:16px'>帮助文件 help.html 未找到</h2>"
-        wv = fwv.WebView(url="", expand=True)
+            wv = None
 
-        def close_help(ev=None):
-            nonlocal help_overlay
-            if help_overlay is not None and help_overlay in page.overlay:
-                page.overlay.remove(help_overlay)
-                help_overlay = None
-                page.update()
+        if wv is not None:
+            def close_help(ev=None):
+                nonlocal help_overlay
+                if help_overlay is not None and help_overlay in page.overlay:
+                    page.overlay.remove(help_overlay)
+                    help_overlay = None
+                    page.update()
 
-        header_bar = ft.Container(content=ft.Row([
-            ft.IconButton(ft.Icons.CLOSE, icon_color=ft.Colors.BLUE_GREY_700, tooltip="关闭", on_click=close_help),
-            ft.Text("数测通帮助", size=18, weight="bold", expand=True),
-        ], alignment=ft.MainAxisAlignment.START), padding=10, bgcolor=ft.Colors.WHITE, shadow=MD_HEADER_SHADOW)
-        help_view = ft.Column([header_bar, ft.Container(content=wv, expand=True)], spacing=0, expand=True)
-        help_overlay = ft.Container(content=help_view, expand=True, bgcolor=ft.Colors.WHITE)
-        page.overlay.append(help_overlay)
-        page.update()
+            header_bar = ft.Container(content=ft.Row([
+                ft.IconButton(ft.Icons.CLOSE, icon_color=ft.Colors.BLUE_GREY_700, tooltip="关闭", on_click=close_help),
+                ft.Text("数测通帮助", size=18, weight="bold", expand=True),
+            ], alignment=ft.MainAxisAlignment.START), padding=10, bgcolor=ft.Colors.WHITE, shadow=MD_HEADER_SHADOW)
+            help_view = ft.Column([header_bar, ft.Container(content=wv, expand=True)], spacing=0, expand=True)
+            help_overlay = ft.Container(content=help_view, expand=True, bgcolor=ft.Colors.WHITE)
+            page.overlay.append(help_overlay)
+            page.update()
+            return
+
+        # 退回：用系统浏览器打开（file:// 在部分 Android 受限制，但 app 不会崩）
+        try:
+            page.launch_url("file://" + html_path)
+            show_toast(page, "已在系统浏览器中打开帮助")
+        except Exception:
+            try:
+                webbrowser.open("file://" + html_path)
+                show_toast(page, "已在系统浏览器中打开帮助")
+            except Exception:
+                show_toast(page, "无法打开帮助文件")
 
         async def _load_help():
             try:

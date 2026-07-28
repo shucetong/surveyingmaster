@@ -2,7 +2,7 @@
 name = "shuce_tong"
 version = "2.0.1"
 description = "数字测图小助手"
-dependencies = ["flet==0.86.1", "numpy"]
+dependencies = ["flet==0.86.1", "numpy", "flet_webview"]
 
 [tool.flet]
 product = "数测通"
@@ -21,3 +21,8 @@ target_sdk_version = 34
 "android.permission.INTERNET" = false
 "android.permission.READ_EXTERNAL_STORAGE" = false
 "android.permission.WRITE_EXTERNAL_STORAGE" = false
+
+# 帮助文档(help.html)通过应用内 WebView 以 file:// 方式加载本地资源，
+# Android 默认禁止 cleartext，需开启以放行 file:// 加载（不涉及网络明文）。
+[tool.flet.android.manifest_application]
+usesCleartextTraffic = "true"
