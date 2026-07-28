@@ -34,6 +34,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: 接受 Android SDK 许可证
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n1)
+          yes | "$SDKMANAGER" --licenses || true
+
       - name: 安装 Flet
         run: pip install "flet[all]==0.86.1"
 
@@ -45,6 +52,8 @@ jobs:
           echo "版本号已设置为 ${{ github.event.inputs.version }}"
 
       - name: 构建 APK（debug 签名，自分发）
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: yes | flet build apk --verbose --split-per-abi
 
       - name: 上传 APK 产物
