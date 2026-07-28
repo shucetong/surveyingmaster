@@ -41,6 +41,11 @@ jobs:
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n1)
           yes | "$SDKMANAGER" --licenses || true
 
+      # flet 打包前会跑 flutter doctor 做预检，任何一项 [✗] 都会让构建中止。
+      # Linux 桌面开发的 GTK 缺失与 APK 无关，但会让 doctor 返回非零，必须补齐。
+      - name: 补齐 Flutter doctor 依赖（GTK 等）
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev
+
       - name: 安装 Flet
         run: pip install "flet[all]==0.86.1"
 
@@ -54,9 +59,18 @@ jobs:
       - name: 构建 APK（debug 签名，自分发）
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
-        run: yes | flet build apk --verbose --split-per-abi
+        run: yes | flet build apk --verbose --split-per-abi 2>&1 | tee build_log.txt
+
+      - name: 上传构建日志（无论成功失败，便于排查真正的 Gradle 报错）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build_log.txt
+          retention-days: 7
 
       - name: 上传 APK 产物
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: 数测通-APK
