@@ -73,10 +73,19 @@ jobs:
           path: build_log.txt
           retention-days: 7
 
+      - name: 诊断 APK 产物路径
+        if: always()
+        run: |
+          echo "=== build/apk 目录 ==="
+          ls -la build/apk/ 2>/dev/null || echo "build/apk 不存在"
+          echo "=== 全盘查找 *.apk ==="
+          find build -name '*.apk' 2>/dev/null || echo "未找到任何 .apk"
+
       - name: 上传 APK 产物
-        if: success()
+        if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: 数测通-APK
-          path: build/**/*.apk
+          path: build/apk/*.apk
           retention-days: 90
