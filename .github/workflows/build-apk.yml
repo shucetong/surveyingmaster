@@ -1,0 +1,55 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (如 2.0.1)'
+        required: false
+        default: ''
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # upload-artifact 暂无 Node24 版(连 v5 仍是 node20)，临时放行 Node20 action，
+    # 待官方出 Node24 版后移除本行（公告：Node20 将于 2026 年秋从 runner 移除）
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: 安装 JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 安装 Flet
+        run: pip install "flet[all]==0.86.1"
+
+      - name: 设置版本号（如果指定）
+        if: ${{ github.event.inputs.version != '' }}
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ github.event.inputs.version }}\"/" pyproject.toml
+          sed -i "s/APP_VERSION = \".*\"/APP_VERSION = \"${{ github.event.inputs.version }}\"/" main.py
+          echo "版本号已设置为 ${{ github.event.inputs.version }}"
+
+      - name: 构建 APK（debug 签名，自分发）
+        run: yes | flet build apk --verbose --split-per-abi
+
+      - name: 上传 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: 数测通-APK
+          path: build/apk/*.apk
+          retention-days: 90

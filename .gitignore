@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+
+# Flet build 输出
+build/
+
+# 用户数据（不应入库）
+survey_records.json
+
+# 签名 keystore（永不入库）
+*.jks
+*.keystore
+
+# 本地调试垃圾
+nul
+_out.txt
+_dbg.txt
+_db.txt
+_diag*.py
+
+# 项目记忆（本地辅助，不入库）
+.workbuddy/
+
+# 测试与验证脚本（开发用，不入库）
+test_*.py
+verify_*.py
+
+# 空壳/占位文件
+certifi.py
+
+# 用户设置（运行时写，不入库）
+settings.json
+
+# 编辑器本地配置
+.vscode/

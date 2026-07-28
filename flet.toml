@@ -1,0 +1,24 @@
+[app]
+name = "数测通"
+description = "数字测图小助手"
+version = "2.0.1"
+
+[build]
+project = "surveying_master"
+org = "JSNU"
+product = "数测通"
+python_version = "3.12"
+
+# Android 专用配置
+[android]
+# 自适应图标背景色
+adaptive_icon_background = "#1565C0"
+# Android 权限（根据实际需要调整）
+permissions = [
+    "android.permission.INTERNET",
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.WRITE_EXTERNAL_STORAGE"
+]
+# 最低 API 级别
+min_sdk_version = 21
+target_sdk_version = 34

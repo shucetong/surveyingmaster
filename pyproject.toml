@@ -1,0 +1,23 @@
+[project]
+name = "shuce_tong"
+version = "2.0.1"
+description = "数字测图小助手"
+dependencies = ["flet==0.86.1", "numpy"]
+
+[tool.flet]
+product = "数测通"
+artifact = "shuce_tong"
+org = "com.surveyingmaster"
+bundle_id = "com.surveyingmaster.sct"
+build_number = 1
+
+[tool.flet.android]
+adaptive_icon_background = "#1565C0"
+adaptive_icon_foreground = "assets/icon.png"
+min_sdk_version = 21
+target_sdk_version = 34
+
+[tool.flet.android.permission]
+"android.permission.INTERNET" = false
+"android.permission.READ_EXTERNAL_STORAGE" = false
+"android.permission.WRITE_EXTERNAL_STORAGE" = false

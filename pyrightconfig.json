@@ -1,0 +1,5 @@
+{
+  "extraPaths": ["."],
+  "exclude": [".workbuddy", "__pycache__", "**/__pycache__"],
+  "typeCheckingMode": "off"
+}
