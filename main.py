@@ -288,6 +288,7 @@ def main(page: ft.Page):
         prefix_icon=ft.Icons.SEARCH,
         text_size=12,
         width=220,
+        height=48,  
         content_padding=12,  # 与全局输入框一致
         border_radius=8,
         border=ft.InputBorder.OUTLINE,  # 与高斯模块 TextField 同款：靠 border+content_padding 自然等高（不设 height，仿 coord.py）
