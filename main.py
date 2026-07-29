@@ -281,7 +281,7 @@ def main(page: ft.Page):
     data_list_container = ft.Column(spacing=5)
     
     search_field = ft.TextField(
-        label="搜索手簿名称",
+        label="输入名称",
         prefix_icon=ft.Icons.SEARCH,
         text_size=14,
         content_padding=10,
@@ -401,10 +401,17 @@ def main(page: ft.Page):
         # 移动端（Android/iOS）与 macOS：优先应用内 WebView 内嵌显示帮助。
         # flet_webview 仅在这些平台受支持且需打包进 APK；懒加载并加保护：
         # 若未打包/插件缺失导致不可用，退回系统浏览器，保证 app 不崩。
+        # 关键教训：WebView 不传 url 时插件默认加载 https://flet.dev（本 app 关了 INTERNET
+        # 权限 → ERR_CACHE_MISS）；file:// 又被 Android 禁访 app 内部存储（ERR_ACCESS_DENIED）；
+        # 挂载后再异步 load_html 与默认加载存在竞态。唯一稳妥路径：把 help.html 整体
+        # base64 编成 data: URL，在构造时直接喂给 WebView——不走网络、不走文件系统、无竞态。
         wv = None
         try:
+            import base64
             import flet_webview as fwv  # 懒加载，避免顶层 import 致启动即崩溃
-            wv = fwv.WebView(expand=True)
+            with open(html_path, "rb") as _f:
+                _b64 = base64.b64encode(_f.read()).decode("ascii")
+            wv = fwv.WebView(url="data:text/html;charset=utf-8;base64," + _b64, expand=True)
         except Exception:
             wv = None
 
@@ -424,19 +431,6 @@ def main(page: ft.Page):
             help_overlay = ft.Container(content=help_view, expand=True, bgcolor=ft.Colors.WHITE)
             page.overlay.append(help_overlay)
             page.update()
-
-            # 用 load_html 注入内容，绕开 Android 对 app 内部存储 file:// 的访问限制（ERR_ACCESS_DENIED）
-            try:
-                with open(html_path, "r", encoding="utf-8", errors="ignore") as _f:
-                    _help_html = _f.read()
-                async def _load_help():
-                    try:
-                        await wv.load_html(_help_html)
-                    except Exception:
-                        pass
-                page.run_task(_load_help())
-            except Exception:
-                pass
             return
 
         # 退回：用系统浏览器打开（file:// 在部分 Android 受限制，但 app 不会崩）
