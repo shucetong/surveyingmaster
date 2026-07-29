@@ -287,13 +287,13 @@ def main(page: ft.Page):
         label="输入名称",
         prefix_icon=ft.Icons.SEARCH,
         text_size=14,
-        height=48,  # 与 type_filter 下拉框硬钉等高
         content_padding=12,  # 与全局输入框一致
         border_radius=8,
-        border=ft.InputBorder.OUTLINE,  # 关键：安卓上 TextField 无 border 约束时 height=48 收不住；高斯模块即靠此收住
+        border=ft.InputBorder.OUTLINE,  # 与高斯模块 TextField 同款：靠 border+content_padding 自然等高（不设 height，仿 coord.py）
         border_color=ft.Colors.BLUE_GREY_200,
         focused_border_color=ft.Colors.INDIGO_600,
         bgcolor=ft.Colors.WHITE,
+        expand=True,  # 占满检索行剩余宽度（仿 coord.py 输入框）
         on_change=lambda e: update_data_view()
     )
 
@@ -382,11 +382,11 @@ def main(page: ft.Page):
     data_view = ft.Column([
         section_title("存储数据检索"),
         ft.Row([
-            ft.Container(content=type_filter, width=150, height=48),  # 硬框 48，与高斯模块一致：Dropdown 收进 48 容器
-            ft.Container(content=search_field, expand=True, height=48),  # 输入框同样硬框 48，二者齐平
+            type_filter,  # 直接进 Row（仿 coord.py）：下拉框自带 height=48，与 TextField 靠 border+content_padding 自然齐平
+            search_field,  # TextField 不设 height、expand 占满（仿 coord.py 输入框）
         ], spacing=10, alignment=ft.MainAxisAlignment.START,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        margin=ft.margin.Margin(left=0, top=0, right=0, bottom=10)),  # 检索行与下方列表间距=其与标题间距(section_title 自带 bottom=10),上下对称
+        margin=ft.margin.Margin(left=0, top=0, right=0, bottom=10)),
         data_list_container
     ], spacing=12, visible=False)
     
