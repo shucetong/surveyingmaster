@@ -53,7 +53,10 @@ def main(page: ft.Page):
         pass
 
     # [新增] MD3主题与应用图标配置
-    page.theme = ft.Theme(color_scheme_seed=ft.Colors.INDIGO, use_material3=True)
+    # visual_density=COMPACT：Flutter 默认按平台自适应密度（桌面=紧凑、手机=宽松），
+    # 导致同一套 Dropdown/TextField 在安卓上变高、与桌面不等高。钉死 COMPACT 统一两端。
+    page.theme = ft.Theme(color_scheme_seed=ft.Colors.INDIGO, use_material3=True,
+                          visual_density=ft.VisualDensity.COMPACT)
     # 设置窗口图标
     page.window.icon = "SCT.ico"
     page.title = ""
@@ -335,9 +338,9 @@ def main(page: ft.Page):
         ("vertical_angle", "垂直角计算", "包括斜距计算", ft.Icons.HEIGHT, ft.Colors.BLUE_500, launch_vertical_angle_with_record, "field"),
         ("leveling", "四等水准测量", "后-前-前-后观测程序", ft.Icons.REORDER, ft.Colors.INDIGO_400, launch_leveling_with_record, "field"),
         ("branch_traverse", "支导线计算", "基于分站模式的方位角与坐标计算", ft.Icons.TIMELINE, ft.Colors.ORANGE_700, launch_branch_traverse_with_record, "office"),
-        ("traverse_adjust", "导线平差", "单一附(闭)合导线简易/严密平差", ft.Icons.POLYLINE, ft.Colors.ORANGE_500, launch_traverse_adjustment_with_record, "office"),
-        ("leveling_adjust", "水准平差", "单一附(闭)合水准路线简易/严密平差", ft.Icons.UPGRADE, ft.Colors.AMBER_700, launch_leveling_adjustment_with_record, "office"),
-        ("trig_leveling", "三角高程平差", "单一附(闭)合三角高程简易/严密平差", ft.Icons.TERRAIN, ft.Colors.DEEP_ORANGE_600, launch_trigonometric_leveling_adjustment_with_record, "office"),
+        ("traverse_adjust", "导线平差", "闭合/附合导线简易/严密平差", ft.Icons.POLYLINE, ft.Colors.ORANGE_500, launch_traverse_adjustment_with_record, "office"),
+        ("leveling_adjust", "水准平差", "闭合/附合水准路线简易/严密平差", ft.Icons.UPGRADE, ft.Colors.AMBER_700, launch_leveling_adjustment_with_record, "office"),
+        ("trig_leveling", "三角高程平差", "闭合/附合三角高程简易/严密平差", ft.Icons.TERRAIN, ft.Colors.DEEP_ORANGE_600, launch_trigonometric_leveling_adjustment_with_record, "office"),
         ("plane_network", "平面控制网平差", "边角网/导线网/CPIII平面网严密平差", ft.Icons.HUB, ft.Colors.ORANGE_800, launch_side_angle_network_with_record, "office"),
         ("leveling_network", "高程控制网平差", "水准网/CPIII高程网严密平差", ft.Icons.ACCOUNT_TREE, ft.Colors.AMBER_800, launch_leveling_network_with_record, "office"),
         ("coord_calc", "坐标正反算", "距离方位角与坐标互相计算", ft.Icons.SWAP_CALLS, ft.Colors.TEAL_700, launch_coordinate_calc_with_record, "calc"),
@@ -408,9 +411,28 @@ def main(page: ft.Page):
         wv = None
         try:
             import base64
+            import re
             import flet_webview as fwv  # 懒加载，避免顶层 import 致启动即崩溃
-            with open(html_path, "rb") as _f:
-                _b64 = base64.b64encode(_f.read()).decode("ascii")
+            with open(html_path, "r", encoding="utf-8", errors="ignore") as _f:
+                _html = _f.read()
+
+            # data URL 文档没有基准路径，help.html 里 src="button.jpg" 这类相对引用
+            # 解析不了 → 图片空白。把 assets 下存在的图片全部内联为 base64 data URI。
+            _MIME = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+                     "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml"}
+
+            def _inline_img(m):
+                fn = m.group(2)
+                fp = os.path.join(assets_dir, fn)
+                ext = fn.rsplit(".", 1)[-1].lower()
+                if os.path.isfile(fp) and ext in _MIME:
+                    with open(fp, "rb") as f:
+                        b = base64.b64encode(f.read()).decode("ascii")
+                    return f'{m.group(1)}data:{_MIME[ext]};base64,{b}{m.group(3)}'
+                return m.group(0)
+
+            _html = re.sub(r'(src=")([^":/\\]+)(")', _inline_img, _html)
+            _b64 = base64.b64encode(_html.encode("utf-8")).decode("ascii")
             wv = fwv.WebView(url="data:text/html;charset=utf-8;base64," + _b64, expand=True)
         except Exception:
             wv = None

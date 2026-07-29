@@ -46,7 +46,7 @@
 
   <h2 id="start">快速上手</h2>
   <ol>
-    <li><b>装好运行</b>：适用安卓手机。首次打开在「设置」里勾选要用的模块（外业观测 / 内业平差 / 空间换算）。</li>
+    <li><b>安装运行</b>：适用安卓手机。首次打开在「设置」里勾选要用的模块（外业观测 / 内业平差 / 空间换算）。</li>
     <li><b>录数</b>：选模块 → 填表。角度（如水平角、垂直角、方位角、方向值）用<code>度.分秒</code>，如 <code>112.3045</code> = 112°30′45″。也支持逗号分隔文件导入（UTF-8 或 GBK，自动跳过 <code>#</code> 注释行与空行）。</li>
     <li><b>算数</b>：点「计算 / 平差」。重点看：2C、归零差、指标差、闭合差、<code>σ₀</code> 单位权中误差、点位中误差 等有没有<b>告警或超限</b>。长按计算结果可以选取并复制。</li>
     <li><b>存盘</b>：每个模块都有保存功能，保存结果在「存储数据检索」里以列表显示，长按可以查看、更名、删除；「数据备份」可以 备份 / 恢复（本地 <code>survey_records.json</code>）。</li>
@@ -264,7 +264,7 @@
 	<tr><td>坐标正反算</td><td>正算：A 点坐标 + 平距 + 方位角 → P 点坐标；反算：A、B 坐标 → 平距 + 方位角。</td><td>坐标 / 平距 / 方位角</td></tr>
 	<tr><td>交会计算</td><td>前方（A,B 坐标 + ∠A,∠B）、后方（A,B,C 三点 + ∠APB,∠BPC）、侧方（A,B + ∠PAB,∠APB）。点须逆时针排列。</td><td>P 点坐标</td></tr>
     <tr><td>高斯正反算</td><td>高斯正算（经纬度 → x,y）、高斯反算（x,y → 经纬度）、坐标换带（带号 / 中央经线联动，3°/6° 带，自然 / +500km / 统一坐标）。</td><td>平面坐标 / 经纬度</td></tr>
-    <tr><td>图幅编号</td><td>单点（经纬度 + 比例尺 → 图幅号）、区域（四角经纬度 + 比例尺 → 图幅范围）、由图幅号反查坐标。</td><td>图幅编号 / 大地坐标</td></tr>
+    <tr><td>图幅编号</td><td>单点（经纬度 + 比例尺 → 图幅号）、区域（四角经纬度 + 比例尺 → 图幅范围）、由图幅号反查坐标。</td><td>图幅编号 / 经纬度</td></tr>
   </table>
   
   <h2 id="s4">三、数据管理篇</h2>
@@ -299,5 +299,19 @@
   </ul>
 
   <p class="foot">数测通 V2.0 ｜ 联系QQ：151327986</p>
+  <script>
+    // data: URL 文档里点 #锚点 会被 Android WebView 当成一次新导航而失败，
+    // 这里拦截站内锚点点击，改为 JS 原地平滑滚动（浏览器/file:// 下同样适用，无副作用）。
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest ? e.target.closest('a') : null;
+      if (!a) return;
+      var href = a.getAttribute('href');
+      if (href && href.charAt(0) === '#') {
+        e.preventDefault();
+        var el = document.getElementById(href.slice(1));
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  </script>
 </body>
 </html>
