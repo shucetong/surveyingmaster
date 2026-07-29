@@ -12,7 +12,7 @@ bundle_id = "com.surveyingmaster.sct"
 build_number = 1
 
 [tool.flet.android]
-adaptive_icon_background = "#1565C0"
+adaptive_icon_background = "#FFFFFF"
 adaptive_icon_foreground = "assets/icon.png"
 min_sdk_version = 24
 target_sdk_version = 34

@@ -3,6 +3,7 @@
 import flet as ft
 import os
 import sys
+import json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import webbrowser
 
@@ -13,7 +14,6 @@ from storage import (
     load_settings,
     save_settings,
     get_module_visibility,
-    export_records,
     import_records,
 )
 from views.angle import (
@@ -335,9 +335,9 @@ def main(page: ft.Page):
         ("vertical_angle", "垂直角计算", "包括斜距计算", ft.Icons.HEIGHT, ft.Colors.BLUE_500, launch_vertical_angle_with_record, "field"),
         ("leveling", "四等水准测量", "后-前-前-后观测程序", ft.Icons.REORDER, ft.Colors.INDIGO_400, launch_leveling_with_record, "field"),
         ("branch_traverse", "支导线计算", "基于分站模式的方位角与坐标计算", ft.Icons.TIMELINE, ft.Colors.ORANGE_700, launch_branch_traverse_with_record, "office"),
-        ("traverse_adjust", "导线平差", "单一闭合/附合导线简易/严密平差", ft.Icons.POLYLINE, ft.Colors.ORANGE_500, launch_traverse_adjustment_with_record, "office"),
-        ("leveling_adjust", "水准平差", "单一闭合/附合水准路线简易/严密平差", ft.Icons.UPGRADE, ft.Colors.AMBER_700, launch_leveling_adjustment_with_record, "office"),
-        ("trig_leveling", "三角高程平差", "单一闭合/附合三角高程简易/严密平差", ft.Icons.TERRAIN, ft.Colors.DEEP_ORANGE_600, launch_trigonometric_leveling_adjustment_with_record, "office"),
+        ("traverse_adjust", "导线平差", "单一附(闭)合导线简易/严密平差", ft.Icons.POLYLINE, ft.Colors.ORANGE_500, launch_traverse_adjustment_with_record, "office"),
+        ("leveling_adjust", "水准平差", "单一附(闭)合水准路线简易/严密平差", ft.Icons.UPGRADE, ft.Colors.AMBER_700, launch_leveling_adjustment_with_record, "office"),
+        ("trig_leveling", "三角高程平差", "单一附(闭)合三角高程简易/严密平差", ft.Icons.TERRAIN, ft.Colors.DEEP_ORANGE_600, launch_trigonometric_leveling_adjustment_with_record, "office"),
         ("plane_network", "平面控制网平差", "边角网/导线网/CPIII平面网严密平差", ft.Icons.HUB, ft.Colors.ORANGE_800, launch_side_angle_network_with_record, "office"),
         ("leveling_network", "高程控制网平差", "水准网/CPIII高程网严密平差", ft.Icons.ACCOUNT_TREE, ft.Colors.AMBER_800, launch_leveling_network_with_record, "office"),
         ("coord_calc", "坐标正反算", "距离方位角与坐标互相计算", ft.Icons.SWAP_CALLS, ft.Colors.TEAL_700, launch_coordinate_calc_with_record, "calc"),
@@ -404,7 +404,7 @@ def main(page: ft.Page):
         wv = None
         try:
             import flet_webview as fwv  # 懒加载，避免顶层 import 致启动即崩溃
-            wv = fwv.WebView(url="file://" + html_path, expand=True)
+            wv = fwv.WebView(expand=True)
         except Exception:
             wv = None
 
@@ -424,6 +424,19 @@ def main(page: ft.Page):
             help_overlay = ft.Container(content=help_view, expand=True, bgcolor=ft.Colors.WHITE)
             page.overlay.append(help_overlay)
             page.update()
+
+            # 用 load_html 注入内容，绕开 Android 对 app 内部存储 file:// 的访问限制（ERR_ACCESS_DENIED）
+            try:
+                with open(html_path, "r", encoding="utf-8", errors="ignore") as _f:
+                    _help_html = _f.read()
+                async def _load_help():
+                    try:
+                        await wv.load_html(_help_html)
+                    except Exception:
+                        pass
+                page.run_task(_load_help())
+            except Exception:
+                pass
             return
 
         # 退回：用系统浏览器打开（file:// 在部分 Android 受限制，但 app 不会崩）
@@ -436,13 +449,6 @@ def main(page: ft.Page):
                 show_toast(page, "已在系统浏览器中打开帮助")
             except Exception:
                 show_toast(page, "无法打开帮助文件")
-
-        async def _load_help():
-            try:
-                await wv.load_html(html_content)
-            except Exception:
-                pass
-        page.run_task(_load_help)
 
     # ===================== 通用浮层（设置 / 关于 / 备份） =====================
     overlay_panel = None
@@ -669,18 +675,19 @@ def main(page: ft.Page):
             page.update()
 
         async def on_backup_do(ev):
-            # 内联 FilePicker（Service 在构造时经 context.page 自动注册），
-            # 不挂 overlay —— 挂 overlay 会让原生侧 invoke 回调超时（FilePicker 是 Service 不是普通控件）。
-            fp = ft.FilePicker()
-            path = await fp.save_file(dialog_title="选择备份文件保存路径", file_name="数测通备份.json")
-            if not path:
-                return
             selected = [records_db[i] for i in backup_cbs if backup_cbs[i].value]
             if not selected:
                 show_toast(page, "请先选择要备份的手簿")
                 return
+            # 移动端/Web 的 save_file 必须传 src_bytes（实际字节流），由 flet 写入用户所选路径；
+            # 桌面端同样支持，故统一走内存序列化，不再单独写盘。
+            payload = json.dumps(selected, ensure_ascii=False, indent=2).encode("utf-8")
             try:
-                export_records(selected, path)
+                fp = ft.FilePicker()
+                path = await fp.save_file(dialog_title="选择备份文件保存路径",
+                                          file_name="数测通备份.json", src_bytes=payload)
+                if not path:
+                    return
                 show_toast(page, f"已备份 {len(selected)} 条手簿")
                 close_overlay_panel()
             except Exception as ex:
@@ -809,8 +816,8 @@ def main(page: ft.Page):
 
         tab_body = ft.Container(content=backup_tab, expand=True)
 
-        indicator_b = ft.Container(height=3, bgcolor=ft.Colors.BLUE_600, border_radius=2, expand=True)
-        indicator_r = ft.Container(height=3, bgcolor=ft.Colors.TRANSPARENT, border_radius=2, expand=True)
+        indicator_b = ft.Container(height=2, bgcolor=ft.Colors.BLUE_600, border_radius=1)
+        indicator_r = ft.Container(height=2, bgcolor=ft.Colors.TRANSPARENT, border_radius=1)
 
         def show_backup(ev):
             tab_body.content = backup_tab
@@ -826,10 +833,16 @@ def main(page: ft.Page):
 
         btn_b = ft.TextButton("数据备份", on_click=show_backup)
         btn_r = ft.TextButton("数据恢复", on_click=show_restore)
-        tab_bar = ft.Column([
-            ft.Row([btn_b, btn_r], spacing=4),
-            ft.Row([indicator_b, indicator_r], spacing=4),
-        ], spacing=2)
+        # 每个 Tab = 按钮 + 其底线，撑满单元；两 Tab 分列两端（SPACE_BETWEEN），
+        # 激活态底线为蓝色，未激活透明（不显示），实现“两端对齐 + 选中蓝底线”。
+        _tab_b = ft.Column([btn_b, indicator_b], spacing=3,
+                           horizontal_alignment=ft.CrossAxisAlignment.STRETCH, expand=True)
+        _tab_r = ft.Column([btn_r, indicator_r], spacing=3,
+                           horizontal_alignment=ft.CrossAxisAlignment.STRETCH, expand=True)
+        # 注意：这里的 Row 千万不能加 expand=True——在外层竖向 Column 里会让
+        # Tab 行与 tab_body 平分面板高度，标签和内容之间出现大片空白。
+        tab_bar = ft.Row([_tab_b, _tab_r],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
         content = ft.Column([tab_bar, tab_body], spacing=8, expand=True)
 
