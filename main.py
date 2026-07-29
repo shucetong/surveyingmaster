@@ -286,7 +286,8 @@ def main(page: ft.Page):
     search_field = ft.TextField(
         label="输入名称",
         prefix_icon=ft.Icons.SEARCH,
-        text_size=14,
+        text_size=12,
+        width=220,
         content_padding=12,  # 与全局输入框一致
         border_radius=8,
         border=ft.InputBorder.OUTLINE,  # 与高斯模块 TextField 同款：靠 border+content_padding 自然等高（不设 height，仿 coord.py）
@@ -305,6 +306,7 @@ def main(page: ft.Page):
             ft.dropdown.Option("内业计算"),
             ft.dropdown.Option("常用换算"),
         ],
+        text_size=12,
         value="全部类型",
         width=150,
         height=48,  # 硬钉高度；配上 border=OUTLINE 约束后安卓才真正收住（此前缺 border 故纹丝不动）
@@ -385,7 +387,7 @@ def main(page: ft.Page):
             type_filter,  # 直接进 Row（仿 coord.py）：下拉框自带 height=48，与 TextField 靠 border+content_padding 自然齐平
             search_field,  # TextField 不设 height、expand 占满（仿 coord.py 输入框）
         ], spacing=10, alignment=ft.MainAxisAlignment.START,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        vertical_alignment=ft.CrossAxisAlignment.START,
         margin=ft.margin.Margin(left=0, top=0, right=0, bottom=10)),
         data_list_container
     ], spacing=12, visible=False)
