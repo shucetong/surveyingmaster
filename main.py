@@ -304,6 +304,7 @@ def main(page: ft.Page):
         ],
         value="全部类型",
         width=150,
+        height=48,  # 硬钉高度与 TextField 桌面实测一致（DropdownMenu 在安卓不吃 dense/padding，只有外层 height 约束镇得住）
         content_padding=10,
         dense=True,  # 压掉输入装饰的最小高度底线（安卓上 DropdownMenu 不吃 visual_density，只认 dense）
         border_radius=10,

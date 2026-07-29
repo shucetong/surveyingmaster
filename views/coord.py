@@ -675,6 +675,7 @@ def create_map_sheet_calc_view(page: ft.Page, on_back, save_callback, initial_da
             
         dd = ft.Dropdown(
             label=label,
+            height=48,  # 硬钉与 TextField 等高（安卓 DropdownMenu 不吃 dense/padding，仅外层 height 镇得住）
             options=[ft.dropdown.Option(opt) for opt in options],
             value=state["data"].get(key, options[0]),
             text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, expand=expand, bgcolor=ft.Colors.WHITE,
@@ -992,17 +993,17 @@ def create_gauss_calc_view(page, on_back, save_callback, initial_data=None, reco
         return tf
 
     def make_coord_dropdown(value, on_select=None):
-        return ft.Dropdown(label="坐标系统", expand=True,
+        return ft.Dropdown(label="坐标系统", expand=True, height=48,
                            options=[ft.dropdown.Option(d) for d, _ in COORD_SYS_ITEMS],
                            value=value, text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
 
     def make_band_dropdown(value, on_select=None):
-        return ft.Dropdown(label="分带", expand=True,
+        return ft.Dropdown(label="分带", expand=True, height=48,
                            options=[ft.dropdown.Option("3°带"), ft.dropdown.Option("6°带")],
                            value=value, text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
 
     def make_ytype_dropdown(value, label="坐标类型", on_select=None):
-        return ft.Dropdown(label=label, expand=True,
+        return ft.Dropdown(label=label, expand=True, height=48,
                            options=[ft.dropdown.Option(t) for t in ("自然坐标", "+500km", "统一坐标")],
                            value=value, text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
 
