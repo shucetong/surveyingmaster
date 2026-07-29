@@ -287,15 +287,18 @@ def main(page: ft.Page):
         label="输入名称",
         prefix_icon=ft.Icons.SEARCH,
         text_size=14,
-        height=48,  # 与 type_filter 下拉框硬钉等高（安卓 COMPACT 密度下 TextField 实际略矮，显式钉死避免下拉框显高）
+        height=48,  # 与 type_filter 下拉框硬钉等高
         content_padding=12,  # 与全局输入框一致
         border_radius=8,
+        border=ft.InputBorder.OUTLINE,  # 关键：安卓上 TextField 无 border 约束时 height=48 收不住；高斯模块即靠此收住
+        border_color=ft.Colors.BLUE_GREY_200,
+        focused_border_color=ft.Colors.INDIGO_600,
         bgcolor=ft.Colors.WHITE,
         on_change=lambda e: update_data_view()
     )
 
     type_filter = ft.Dropdown(
-        hint_text="手簿类型",  # 不用内部 label：安卓上 DropdownMenu 的浮动 label 会溢出 48px 硬约束框、整体显高；hint 占位框体干净 48、与输入框齐平
+        label="手簿类型",  # 用内部 label（高斯模块同款且等高已验证：安卓上 label 配合 border 框不会溢出；先前 hint_text 反而因缺 border 收不住）
         options=[
             ft.dropdown.Option("全部类型"),
             ft.dropdown.Option("外业观测"),
@@ -304,11 +307,13 @@ def main(page: ft.Page):
         ],
         value="全部类型",
         width=150,
-        height=48,  # 硬钉高度与 TextField 桌面实测一致（DropdownMenu 在安卓不吃 dense/padding，只有外层 height 约束镇得住）
-        content_padding=10,
-        dense=True,  # 压掉输入装饰的最小高度底线（安卓上 DropdownMenu 不吃 visual_density，只认 dense）
-        border_radius=10,
-        bgcolor=ft.Colors.WHITE,  # 注意：bgcolor 只管弹出菜单背景
+        height=48,  # 硬钉高度；配上 border=OUTLINE 约束后安卓才真正收住（此前缺 border 故纹丝不动）
+        content_padding=12,
+        dense=True,
+        border_radius=8,
+        border=ft.InputBorder.OUTLINE,  # 与高斯模块 Dropdown 同款：有边框约束 height=48 才生效
+        border_color=ft.Colors.BLUE_GREY_200,
+        focused_border_color=ft.Colors.INDIGO_600,
         filled=True,
         fill_color=ft.Colors.WHITE,  # 输入框本体背景；安卓上不写会回落灰底（桌面默认白所以看不出）
         on_select=lambda e: update_data_view(),
@@ -377,8 +382,8 @@ def main(page: ft.Page):
     data_view = ft.Column([
         section_title("存储数据检索"),
         ft.Row([
-            type_filter,
-            ft.Container(content=search_field, expand=True),
+            ft.Container(content=type_filter, width=150, height=48),  # 硬框 48，与高斯模块一致：Dropdown 收进 48 容器
+            ft.Container(content=search_field, expand=True, height=48),  # 输入框同样硬框 48，二者齐平
         ], spacing=10, alignment=ft.MainAxisAlignment.START,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
         margin=ft.margin.Margin(left=0, top=0, right=0, bottom=10)),  # 检索行与下方列表间距=其与标题间距(section_title 自带 bottom=10),上下对称
