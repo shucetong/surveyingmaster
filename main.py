@@ -306,7 +306,9 @@ def main(page: ft.Page):
         width=150,
         content_padding=10,
         border_radius=10,
-        bgcolor=ft.Colors.WHITE,
+        bgcolor=ft.Colors.WHITE,  # 注意：bgcolor 只管弹出菜单背景
+        filled=True,
+        fill_color=ft.Colors.WHITE,  # 输入框本体背景；安卓上不写会回落灰底（桌面默认白所以看不出）
         on_select=lambda e: update_data_view(),
     )
 
@@ -453,6 +455,17 @@ def main(page: ft.Page):
             help_overlay = ft.Container(content=help_view, expand=True, bgcolor=ft.Colors.WHITE)
             page.overlay.append(help_overlay)
             page.update()
+
+            # Android 的 webview_flutter 默认禁用 JS（桌面浏览器不禁），help.html 里
+            # 拦截锚点点击的 <script> 在手机上根本没执行 → 图片正常但目录点不动。
+            # 挂载后显式开 JS，再 reload 让页面重新解析、内联脚本得以执行。
+            async def _enable_js():
+                try:
+                    await wv.set_javascript_mode(fwv.JavaScriptMode.UNRESTRICTED)
+                    await wv.reload()
+                except Exception:
+                    pass
+            page.run_task(_enable_js)
             return
 
         # 退回：用系统浏览器打开（file:// 在部分 Android 受限制，但 app 不会崩）
