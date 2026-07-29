@@ -677,8 +677,8 @@ def create_map_sheet_calc_view(page: ft.Page, on_back, save_callback, initial_da
             label=label,
             options=[ft.dropdown.Option(opt) for opt in options],
             value=state["data"].get(key, options[0]),
-            text_size=12, content_padding=12, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, expand=expand, bgcolor=ft.Colors.WHITE,
-            filled=True, fill_color=ft.Colors.WHITE,  # bgcolor 只染弹出菜单；本体白底须 filled+fill_color（安卓否则灰底）
+            text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, expand=expand, bgcolor=ft.Colors.WHITE,
+            filled=True, fill_color=ft.Colors.WHITE,  # bgcolor 只染弹出菜单；本体白底须 filled+fill_color（安卓否则灰底）；dense=True 压最小高度（安卓不吃 visual_density）
         )
         
         if hasattr(dd, "on_change"):
@@ -994,17 +994,17 @@ def create_gauss_calc_view(page, on_back, save_callback, initial_data=None, reco
     def make_coord_dropdown(value, on_select=None):
         return ft.Dropdown(label="坐标系统", expand=True,
                            options=[ft.dropdown.Option(d) for d, _ in COORD_SYS_ITEMS],
-                           value=value, text_size=12, content_padding=12, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
+                           value=value, text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
 
     def make_band_dropdown(value, on_select=None):
         return ft.Dropdown(label="分带", expand=True,
                            options=[ft.dropdown.Option("3°带"), ft.dropdown.Option("6°带")],
-                           value=value, text_size=12, content_padding=12, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
+                           value=value, text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
 
     def make_ytype_dropdown(value, label="坐标类型", on_select=None):
         return ft.Dropdown(label=label, expand=True,
                            options=[ft.dropdown.Option(t) for t in ("自然坐标", "+500km", "统一坐标")],
-                           value=value, text_size=12, content_padding=12, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
+                           value=value, text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE, on_select=on_select)
 
     # ====== 失焦校验 + 带号<->L0 联动（不再每次输入都报警） ======
     def _zone_blur(zone_f, l0_f, band_dd, key_zone, key_l0, e):

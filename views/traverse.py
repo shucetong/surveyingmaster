@@ -175,7 +175,7 @@ def create_branch_traverse_view(page: ft.Page, on_back, save_callback, initial_d
     def open_import_dialog(e):
         ha_records = [r for r in records_db if r["type"] == "水平角"]
         options = [ft.dropdown.Option(r["id"], text=r["name"]) for r in ha_records]
-        dd = ft.Dropdown(options=options, expand=True, disabled=not ha_records, content_padding=12, border_radius=8,
+        dd = ft.Dropdown(options=options, expand=True, disabled=not ha_records, content_padding=12, dense=True, border_radius=8,
                          label="选择要导入的手簿" if ha_records else "暂无外业手簿（可点右上角图标从文件导入）")
         mode_row, is_append = make_mode_switch()
 
@@ -892,7 +892,7 @@ def create_traverse_adjustment_view(page: ft.Page, on_back, save_callback, initi
     def open_import_dialog(e):
         ha_records = [r for r in records_db if r["type"] == "水平角"]
         options = [ft.dropdown.Option(r["id"], text=r["name"]) for r in ha_records]
-        dd = ft.Dropdown(options=options, expand=True, disabled=not ha_records, content_padding=12, border_radius=8,
+        dd = ft.Dropdown(options=options, expand=True, disabled=not ha_records, content_padding=12, dense=True, border_radius=8,
                          label="选择要导入的手簿" if ha_records else "暂无外业手簿（可点右上角图标从文件导入）")
         mode_row, is_append = make_mode_switch()
 

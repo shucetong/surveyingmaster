@@ -697,7 +697,7 @@ def create_leveling_adjustment_view(page: ft.Page, on_back, save_callback, initi
     def open_import_dialog(e):
         lv_records = [r for r in records_db if r["type"] == "四等水准"]
         options = [ft.dropdown.Option(r["id"], text=r["name"]) for r in lv_records]
-        dd = ft.Dropdown(options=options, expand=True, disabled=not lv_records, content_padding=12, border_radius=8,
+        dd = ft.Dropdown(options=options, expand=True, disabled=not lv_records, content_padding=12, dense=True, border_radius=8,
                          label="选择要导入的手簿" if lv_records else "暂无外业手簿（可点右上角图标从文件导入）")
         mode_row, is_append = make_mode_switch()
 
@@ -1510,7 +1510,7 @@ def create_trigonometric_leveling_adjustment_view(page: ft.Page, on_back, save_c
     def open_import_dialog(e):
         va_records = [r for r in records_db if r["type"] == "垂直角"]
         options = [ft.dropdown.Option(r["id"], text=r["name"]) for r in va_records]
-        dd = ft.Dropdown(options=options, expand=True, disabled=not va_records, content_padding=12, border_radius=8,
+        dd = ft.Dropdown(options=options, expand=True, disabled=not va_records, content_padding=12, dense=True, border_radius=8,
                          label="选择要导入的手簿" if va_records else "暂无外业手簿（可点右上角图标从文件导入）")
         mode_row, is_append = make_mode_switch()
 
