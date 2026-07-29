@@ -276,19 +276,20 @@ def main(page: ft.Page):
             ft.Icon(ft.Icons.INSERT_DRIVE_FILE, color=ft.Colors.BLUE_GREY_400), 
             ft.Column([ft.Text(record["name"], size=16, weight=ft.FontWeight.W_500), ft.Text(f"{record['category']} | {record['timestamp']}", size=12, color=ft.Colors.BLUE_GREY_400)], expand=True), 
             ft.Icon(ft.Icons.MORE_VERT, color=ft.Colors.BLUE_GREY_300)
-        ]), padding=15, bgcolor=ft.Colors.WHITE, border_radius=10, margin=ft.margin.Margin(left=0, top=0, right=0, bottom=10), on_click=lambda e: edit_record_proxy(record), on_long_press=lambda _: show_shortcut_menu(record))
+        ]), padding=15, bgcolor=ft.Colors.WHITE, border_radius=10, on_click=lambda e: edit_record_proxy(record), on_long_press=lambda _: show_shortcut_menu(record))
 
     def section_title(text): 
         return ft.Container(content=ft.Text(text, size=20, weight="bold", color=ft.Colors.BLUE_GREY_800), padding=ft.padding.Padding(left=0, top=5, right=0, bottom=10))
 
-    data_list_container = ft.Column(spacing=5)
+    data_list_container = ft.Column(spacing=12)  # 与模块列表(list_item,无 margin)卡片间距一致,避免"数据"列表比"外业/内业/换算"更松
     
     search_field = ft.TextField(
         label="输入名称",
         prefix_icon=ft.Icons.SEARCH,
         text_size=14,
-        content_padding=10,
-        border_radius=10,
+        height=48,  # 与 type_filter 下拉框硬钉等高（安卓 COMPACT 密度下 TextField 实际略矮，显式钉死避免下拉框显高）
+        content_padding=12,  # 与全局输入框一致
+        border_radius=8,
         bgcolor=ft.Colors.WHITE,
         on_change=lambda e: update_data_view()
     )
@@ -379,7 +380,9 @@ def main(page: ft.Page):
         ft.Row([
             type_filter,
             ft.Container(content=search_field, expand=True),
-        ], spacing=10, alignment=ft.MainAxisAlignment.START),
+        ], spacing=10, alignment=ft.MainAxisAlignment.START,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        margin=ft.margin.Margin(left=0, top=0, right=0, bottom=10)),  # 检索行与下方列表间距=其与标题间距(section_title 自带 bottom=10),上下对称
         data_list_container
     ], spacing=12, visible=False)
     
