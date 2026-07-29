@@ -295,8 +295,7 @@ def main(page: ft.Page):
     )
 
     type_filter = ft.Dropdown(
-        label="手簿类型",
-        hint_text="全部类型",
+        hint_text="手簿类型",  # 不用内部 label：安卓上 DropdownMenu 的浮动 label 会溢出 48px 硬约束框、整体显高；hint 占位框体干净 48、与输入框齐平
         options=[
             ft.dropdown.Option("全部类型"),
             ft.dropdown.Option("外业观测"),
