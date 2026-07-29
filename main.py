@@ -285,13 +285,11 @@ def main(page: ft.Page):
     
     search_field = ft.TextField(
         label="输入名称",
-        prefix_icon=ft.Icons.SEARCH,
+        hint_text="如 手簿名称",
         text_size=12,
-        width=220,
-        height=48,  
-        content_padding=12,  # 与全局输入框一致
+        content_padding=12,
         border_radius=8,
-        border=ft.InputBorder.OUTLINE,  # 与高斯模块 TextField 同款：靠 border+content_padding 自然等高（不设 height，仿 coord.py）
+        border=ft.InputBorder.OUTLINE,  # 与高斯模块 TextField 同款：不设 height，靠 border+content_padding 自然等高（仿 coord.py）
         border_color=ft.Colors.BLUE_GREY_200,
         focused_border_color=ft.Colors.INDIGO_600,
         bgcolor=ft.Colors.WHITE,
@@ -309,8 +307,8 @@ def main(page: ft.Page):
         ],
         text_size=12,
         value="全部类型",
-        width=150,
-        height=48,  # 硬钉高度；配上 border=OUTLINE 约束后安卓才真正收住（此前缺 border 故纹丝不动）
+        expand=True,  # 仿 coord.py：与 TextField 同走 expand，等高对齐（不写固定 width）
+        height=48,  # 与高斯模块一致：Dropdown 的 height=48 仅作外层尺寸，自然高度与 TextField 对齐
         content_padding=12,
         dense=True,
         border_radius=8,
