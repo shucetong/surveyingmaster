@@ -22,11 +22,20 @@ from views.angle import (
     create_vertical_angle_view,
 )
 from views.coord import (
+    create_coord_convert_view,
     create_coordinate_calc_view,
     create_datum_transform_view,
     create_gauss_calc_view,
+    create_geoid_undulation_view,
     create_intersection_calc_view,
     create_map_sheet_calc_view,
+    create_two_d_transform_view,
+)
+from views.free_network import (
+    create_free_network_view,
+)
+from views.gnss_network import (
+    create_gnss_network_view,
 )
 from views.leveling import (
     create_leveling_adjustment_view,
@@ -37,12 +46,15 @@ from views.leveling import (
 from views.network import (
     create_side_angle_network_adjustment_view,
 )
+from views.quasi_stable import (
+    create_quasi_stable_view,
+)
 from views.traverse import (
     create_branch_traverse_view,
     create_traverse_adjustment_view,
 )
 
-APP_VERSION = "2.0.1"
+APP_VERSION = "3.0.1"
 
 
 def main(page: ft.Page):
@@ -74,8 +86,9 @@ def main(page: ft.Page):
             "水平角": "外业观测", "水平角-方向法": "外业观测", "垂直角": "外业观测", "四等水准": "外业观测",
             "支导线": "内业计算", "导线平差": "内业计算", "水准平差": "内业计算", "三角高程平差": "内业计算",
             "坐标换算": "常用换算", "交会计算": "常用换算", "图幅编号计算": "常用换算",
-            "高斯正反算": "常用换算", "基准转换": "常用换算",
-            "平面控制网平差": "内业计算", "高程控制网平差": "内业计算",
+            "高斯正反算": "常用换算", "基准转换": "常用换算", "坐标转换": "常用换算", "二维转换": "常用换算", "高程异常计算": "常用换算",
+            "平面控制网平差": "内业计算", "高程控制网平差": "内业计算", "GNSS网平差": "内业计算",
+            "自由网平差": "内业计算", "拟稳平差": "内业计算",
         }
         if payload["type"] in _type_category:
             payload["category"] = _type_category[payload["type"]]
@@ -187,6 +200,27 @@ def main(page: ft.Page):
         main_content.content = create_datum_transform_view(page, on_back=switch_to_main_menu, save_callback=handle_save_record, initial_data=record, records_db=records_db)
         page.update()
 
+    def launch_coord_convert_with_record(record=None):
+        page.navigation_bar.visible = False
+        page.appbar.title = None
+        page.appbar.bgcolor = ft.Colors.BLUE_GREY_50
+        main_content.content = create_coord_convert_view(page, on_back=switch_to_main_menu, save_callback=handle_save_record, initial_data=record, records_db=records_db)
+        page.update()
+
+    def launch_2d_transform_with_record(record=None):
+        page.navigation_bar.visible = False
+        page.appbar.title = None
+        page.appbar.bgcolor = ft.Colors.BLUE_GREY_50
+        main_content.content = create_two_d_transform_view(page, on_back=switch_to_main_menu, save_callback=handle_save_record, initial_data=record, records_db=records_db)
+        page.update()
+
+    def launch_geoid_undulation_with_record(record=None):
+        page.navigation_bar.visible = False
+        page.appbar.title = None
+        page.appbar.bgcolor = ft.Colors.BLUE_GREY_50
+        main_content.content = create_geoid_undulation_view(page, on_back=switch_to_main_menu, save_callback=handle_save_record, initial_data=record, records_db=records_db)
+        page.update()
+
     def launch_side_angle_network_with_record(record=None):
         page.navigation_bar.visible = False
         page.appbar.title = None
@@ -199,6 +233,27 @@ def main(page: ft.Page):
         page.appbar.title = None
         page.appbar.bgcolor = ft.Colors.BLUE_GREY_50
         main_content.content = create_leveling_network_adjustment_view(page, on_back=switch_to_main_menu, save_callback=handle_save_record, initial_data=record, records_db=records_db)
+        page.update()
+
+    def launch_gnss_network_with_record(record=None):
+        page.navigation_bar.visible = False
+        page.appbar.title = None
+        page.appbar.bgcolor = ft.Colors.BLUE_GREY_50
+        main_content.content = create_gnss_network_view(page, on_back=switch_to_main_menu, save_callback=handle_save_record, initial_data=record, records_db=records_db)
+        page.update()
+
+    def launch_free_network_with_record(record=None):
+        page.navigation_bar.visible = False
+        page.appbar.title = None
+        page.appbar.bgcolor = ft.Colors.BLUE_GREY_50
+        main_content.content = create_free_network_view(page, on_back=switch_to_main_menu, save_callback=handle_save_record, initial_data=record, records_db=records_db)
+        page.update()
+
+    def launch_quasi_stable_with_record(record=None):
+        page.navigation_bar.visible = False
+        page.appbar.title = None
+        page.appbar.bgcolor = ft.Colors.BLUE_GREY_50
+        main_content.content = create_quasi_stable_view(page, on_back=switch_to_main_menu, save_callback=handle_save_record, initial_data=record, records_db=records_db)
         page.update()
 
     def show_shortcut_menu(record):
@@ -268,8 +323,14 @@ def main(page: ft.Page):
         elif record["type"] == "图幅编号计算": launch_map_sheet_calc_with_record(record)
         elif record["type"] == "高斯正反算": launch_gauss_calc_with_record(record)
         elif record["type"] == "基准转换": launch_datum_transform_with_record(record)
+        elif record["type"] == "坐标转换": launch_coord_convert_with_record(record)
+        elif record["type"] == "二维转换": launch_2d_transform_with_record(record)
+        elif record["type"] == "高程异常计算": launch_geoid_undulation_with_record(record)
         elif record["type"] == "平面控制网平差": launch_side_angle_network_with_record(record)
         elif record["type"] == "高程控制网平差": launch_leveling_network_with_record(record)
+        elif record["type"] == "GNSS网平差": launch_gnss_network_with_record(record)
+        elif record["type"] == "自由网平差": launch_free_network_with_record(record)
+        elif record["type"] == "拟稳平差": launch_quasi_stable_with_record(record)
 
     def data_record_item(record): 
         return ft.Container(content=ft.Row([
@@ -353,10 +414,16 @@ def main(page: ft.Page):
         ("trig_leveling", "三角高程平差", "闭合/附合三角高程简易/严密平差", ft.Icons.TERRAIN, ft.Colors.DEEP_ORANGE_600, launch_trigonometric_leveling_adjustment_with_record, "office"),
         ("plane_network", "平面控制网平差", "边角网/导线网/CPIII平面网严密平差", ft.Icons.HUB, ft.Colors.ORANGE_800, launch_side_angle_network_with_record, "office"),
         ("leveling_network", "高程控制网平差", "水准网/CPIII高程网严密平差", ft.Icons.ACCOUNT_TREE, ft.Colors.AMBER_800, launch_leveling_network_with_record, "office"),
+        ("gnss_network", "GNSS网平差", "GNSS三维基线向量网严密平差", ft.Icons.SATELLITE_ALT, ft.Colors.AMBER_900, launch_gnss_network_with_record, "office"),
+        ("free_network", "自由网平差", "沉降监测水准网秩亏自由网平差", ft.Icons.STACKED_LINE_CHART, ft.Colors.ORANGE_900, launch_free_network_with_record, "office"),
+        ("quasi_stable", "拟稳平差", "沉降监测网拟稳平差与稳定性分析", ft.Icons.ANCHOR, ft.Colors.DEEP_ORANGE_800, launch_quasi_stable_with_record, "office"),
         ("coord_calc", "坐标正反算", "距离方位角与坐标互相计算", ft.Icons.SWAP_CALLS, ft.Colors.TEAL_700, launch_coordinate_calc_with_record, "calc"),
         ("intersection", "交会计算", "前方/后方/侧方交会计算", ft.Icons.GRAIN, ft.Colors.TEAL_500, launch_intersection_calc_with_record, "calc"),
         ("gauss", "高斯正反算", "高斯正算/反算/坐标换带", ft.Icons.TRANSFORM, ft.Colors.TEAL_600, launch_gauss_calc_with_record, "calc"),
+        ("coord_convert", "坐标转换", "大地坐标与空间直角坐标互相计算", ft.Icons.PUBLIC, ft.Colors.CYAN_300, launch_coord_convert_with_record, "calc"),
+        ("two_d_transform", "二维转换", "四参数坐标转换", ft.Icons.SWAP_HORIZ, ft.Colors.CYAN_400, launch_2d_transform_with_record, "calc"),
         ("datum_transform", "基准转换", "七参数坐标转换", ft.Icons.SWAP_HORIZONTAL_CIRCLE, ft.Colors.CYAN_600, launch_datum_transform_with_record, "calc"),
+        ("geoid_undulation", "高程异常计算", "曲面拟合法计算高程异常", ft.Icons.WATER, ft.Colors.CYAN_500, launch_geoid_undulation_with_record, "calc"),
         ("map_sheet", "图幅编号计算", "各比例尺标准图幅编号换算", ft.Icons.GRID_ON, ft.Colors.CYAN_700, launch_map_sheet_calc_with_record, "calc"),
     ]
     module_controls = {}  # key -> list_item 行容器（用于显隐控制）

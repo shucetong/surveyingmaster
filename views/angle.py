@@ -12,18 +12,30 @@ from common import MD_CARD_STYLE, MD_HEADER_SHADOW, bankers_round, close_dialog,
 # 模块 1：水平角计算——测回法
 # =============================================================================
 
+# —— 第二测回展开智能滚屏估算标定（口径同 gnss_network：TextField≈46、卡内边距 12×2、行距 10；
+#    理论值，待真机实测反推修正）——
+_R2_SECTION_TOP = 488   # "展开第二测回"按钮所在行顶部到滚动内容顶端的估算距离：
+                        # 站号行20+10 + 首测回(标题24+10+点名卡100+10+读数卡274)+10 + 隔条20+10
+_R2_SECTION_H = 362     # 第二测回区块展开后的估算总高：标题行(含按钮)≈40 + 间距10 + 读数卡274
+                        # + 半个输入框23 + 底边距14（真机实测：按325判断时平距行只显示一半，
+                        # 2026-10-02 由老矿工反馈校正）
+_VP_FALLBACK = 160      # 无滚动度量时的视口扣除量估算：页头≈58 + 页脚≈69 + 滚动包边距30
+
+
 def create_horizontal_angle_view(page: ft.Page, on_back, save_callback, initial_data=None, records_db=None):
     loaded_data = copy.deepcopy(initial_data.get("data", [{}])) if initial_data else [{}]
-    if isinstance(loaded_data, dict): 
+    if isinstance(loaded_data, dict):
         loaded_data = [loaded_data]
 
     state = {
-        "second_set_open": False, 
-        "record_id": initial_data.get("id") if initial_data else None, 
-        "record_name": initial_data.get("name") if initial_data else "未命名手簿", 
-        "is_dirty": False, 
-        "stations": loaded_data, 
-        "current_index": 0
+        "second_set_open": False,
+        "record_id": initial_data.get("id") if initial_data else None,
+        "record_name": initial_data.get("name") if initial_data else "未命名手簿",
+        "is_dirty": False,
+        "stations": loaded_data,
+        "current_index": 0,
+        "scroll_pixels": None,    # 最近一次 on_scroll 的滚动偏移（None=从未滚动）
+        "scroll_viewport": None,  # 最近一次 on_scroll 的视口高度
     }
     
     input_controls = {}
@@ -429,12 +441,39 @@ def create_horizontal_angle_view(page: ft.Page, on_back, save_callback, initial_
     first_set = ft.Column([ft.Row([ft.Icon(ft.Icons.LOOKS_ONE, size=20, color=ft.Colors.BLUE_600), ft.Text("第一测回", size=16, weight="bold")]), create_set_content("set1", show_points=True)], spacing=10)
     second_set_container = ft.Column([create_set_content("set2", show_points=False)], visible=False)
 
+    def track_scroll(e):
+        # 记录最近一次滚动度量：pixels=当前滚动偏移、viewport_dimension=视口高。
+        # 供"展开第二测回"智能滚屏判断用，只写 state，不触发界面刷新。
+        state["scroll_pixels"] = e.pixels
+        state["scroll_viewport"] = e.viewport_dimension
+
     async def toggle_second_set(e):
-        state["second_set_open"] = not state["second_set_open"]
-        second_set_container.visible = state["second_set_open"]
-        e.control.icon = ft.Icons.KEYBOARD_ARROW_UP if state["second_set_open"] else ft.Icons.KEYBOARD_ARROW_DOWN
-        e.control.content.value = "收起第二测回" if state["second_set_open"] else "展开第二测回"
+        expanding = not state["second_set_open"]
+        state["second_set_open"] = expanding
+        second_set_container.visible = expanding
+        e.control.icon = ft.Icons.KEYBOARD_ARROW_UP if expanding else ft.Icons.KEYBOARD_ARROW_DOWN
+        e.control.content.value = "收起第二测回" if expanding else "展开第二测回"
         page.update()
+        if not expanding:
+            return
+        # 展开后智能滚屏（需求判据）：若按钮距视口底端的剩余空间放得下整个
+        # 第二测回区块，则不动；放不下则只向下滚"差值"——多滚会把区块顶出视口
+        # 上沿，少滚则底部仍被页脚裁切。
+        # 按钮屏上位置 = 内容坐标标定值(_R2_SECTION_TOP) - 当前滚动偏移；
+        # 偏移与视口高优先取 on_scroll 实测值，从未滚动过则偏移=0、视口高按页高估算。
+        await asyncio.sleep(0.12)   # 等布局完成再判断/滚动（同 on_calc_click 等待口径）
+        vp = state.get("scroll_viewport")
+        o = state.get("scroll_pixels")
+        if vp and o is not None:
+            v = vp
+        else:
+            v = page.height - _VP_FALLBACK
+            o = 0
+        d_bottom = v - (_R2_SECTION_TOP - o)        # 按钮距视口底端的剩余空间
+        if d_bottom >= _R2_SECTION_H:
+            return                                   # 完全放得下，无需滚屏
+        need = _R2_SECTION_H - d_bottom + 8          # 差值滚动（+8 底部呼吸边距）
+        await safe_scroll(scroll_content, delta=need, duration=400)
 
     second_set_header = ft.TextButton(content=ft.Text("展开第二测回"), icon=ft.Icons.KEYBOARD_ARROW_DOWN, on_click=toggle_second_set, style=ft.ButtonStyle(color=ft.Colors.BLUE_GREY_400))
     second_set_section = ft.Column([ft.Row([ft.Icon(ft.Icons.LOOKS_TWO, size=20, color=ft.Colors.BLUE_GREY_400), ft.Text("第二测回", size=16, weight="bold", color=ft.Colors.BLUE_GREY_400), ft.VerticalDivider(), second_set_header]), second_set_container], spacing=10)
@@ -445,7 +484,7 @@ def create_horizontal_angle_view(page: ft.Page, on_back, save_callback, initial_
         ft.Divider(height=20, color=ft.Colors.TRANSPARENT), 
         second_set_section, 
         calc_result_container
-    ], scroll=ft.ScrollMode.AUTO, expand=True)
+    ], scroll=ft.ScrollMode.AUTO, expand=True, on_scroll=track_scroll)
 
     scroll_wrapper = ft.Container(content=scroll_content, expand=True, padding=15)
     
@@ -463,6 +502,14 @@ def create_horizontal_angle_view(page: ft.Page, on_back, save_callback, initial_
 # =============================================================================
 # 模块 2：水平角计算——方向观测法
 # =============================================================================
+
+# —— 方向观测法"展开第二测回"智能滚屏标定（老矿工 2026-10-02 定判据：
+#    不管方向总数多少，只要求"方向1""方向2"两张观测卡能完整显示）——
+#    口径同文件头：TextField≈48、文本≈22、按钮行≈44、卡内边距24、行距10，含真机校正+37
+_D2_H = 384     # 从按钮行顶到"方向2"卡底端的估算高度：
+                # 按钮行44 + 间距10 + "观测数据"22 + 间距10 + 方向1(零方向)卡162 + 间距10
+                # + 方向2卡126（带删除钮取大值；k=2 无删除钮实际362，按384判定的22px
+                #   属底部富余，不算误滚）
 
 def create_direction_angle_view(page: ft.Page, on_back, save_callback, initial_data=None, records_db=None):
     def _new_round(is_zero):
@@ -496,6 +543,9 @@ def create_direction_angle_view(page: ft.Page, on_back, save_callback, initial_d
         "data": loaded,
         "current_index": 0,
         "second_set_open": False,
+        "scroll_pixels": None,    # 最近一次 on_scroll 的滚动偏移（None=从未滚动）
+        "scroll_viewport": None,  # 最近一次 on_scroll 的视口高度
+        "scroll_max": None,       # 最近一次 on_scroll 的最大可滚偏移
     }
 
     calc_result_container = ft.Container(key="dir_calc_result", visible=False, padding=15, bgcolor=ft.Colors.GREEN_50, border_radius=10)
@@ -1129,12 +1179,45 @@ def create_direction_angle_view(page: ft.Page, on_back, save_callback, initial_d
                                    content_padding=12, expand=True,
                                    on_change=lambda e: _set_station_name(e.control.value))
 
+    def track_scroll(e):
+        # 记录最近一次滚动度量：pixels=滚动偏移、viewport_dimension=视口高、max_scroll_extent=最大可滚偏移。
+        # 供"展开第二测回"智能滚屏判断用，只写 state，不触发界面刷新。
+        state["scroll_pixels"] = e.pixels
+        state["scroll_viewport"] = e.viewport_dimension
+        state["scroll_max"] = e.max_scroll_extent
+
     async def toggle_second_set(e):
         state["second_set_open"] = not state["second_set_open"]
         build_targets_ui()
         e.control.icon = ft.Icons.KEYBOARD_ARROW_UP if state["second_set_open"] else ft.Icons.KEYBOARD_ARROW_DOWN
         e.control.content.value = "收起第二测回" if state["second_set_open"] else "展开第二测回"
         page.update()
+        if not state["second_set_open"]:
+            return
+        # 展开后智能滚屏（老矿工 2026-10-02 定判据，区别于模块 1/3 的整块判据）：
+        # 不管方向总数 k 是多少，只要求"方向1""方向2"两张观测卡能完整显示——
+        # 估算按钮距视口底端的剩余空间，放得下这两张卡则不滚；放不下只向下滚差值。
+        # （旧"滚到底/底端对齐"会连带把方向3..k、新增钮乃至成果区滚进来，滚幅偏大。）
+        # 估算口径同 _D2_H 注释；top 为按钮行顶到滚动内容顶端的估算距离，随 k 线性变化：
+        # 测站区198（站号行20+10+首测回标题24+10+"安置仪器"22+10+测站卡70+10+"观测数据"22+10）
+        # + 首测回卡区（k=2：零方向卡214+10+非零卡158+10+新增钮52；
+        #   k≥3：零方向卡214+10+(k-2)×(非零卡176+10)+非零卡176+10+新增钮52，
+        #   set1 非零卡带删除钮176、k=2 为158）+ 间距10。
+        await asyncio.sleep(0.12)
+        k = len(cur_targets())
+        top = 662 if k == 2 else 680 + 186 * (k - 2)
+        o = state.get("scroll_pixels")
+        vp = state.get("scroll_viewport")
+        if vp and o is not None:
+            v = vp
+        else:
+            v = page.height - _VP_FALLBACK
+            o = 0
+        # 滚动量 = 目标内容坐标(按钮顶top+方向2卡底_D2_H) − 当前视口底端(o+v)，+8 呼吸边距；
+        # 与模块 1 同式：d_bottom ≥ _D2_H 时 need ≤ 8 自然不滚。
+        need = top + _D2_H - o - v + 8
+        if need > 8:
+            await safe_scroll(scroll_content, delta=need, duration=400)
 
     second_set_header = ft.TextButton(content=ft.Text("展开第二测回"), icon=ft.Icons.KEYBOARD_ARROW_DOWN, on_click=toggle_second_set, style=ft.ButtonStyle(color=ft.Colors.BLUE_GREY_400))
     second_set_section = ft.Column([
@@ -1154,7 +1237,7 @@ def create_direction_angle_view(page: ft.Page, on_back, save_callback, initial_d
         targets_container,
         second_set_section,
         calc_result_container
-    ], scroll=ft.ScrollMode.AUTO, expand=True)
+    ], scroll=ft.ScrollMode.AUTO, expand=True, on_scroll=track_scroll)
 
     scroll_wrapper = ft.Container(content=scroll_content, expand=True, padding=15)
 
@@ -1174,6 +1257,13 @@ def create_direction_angle_view(page: ft.Page, on_back, save_callback, initial_d
 # 模块 3：垂直角计算
 # =============================================================================
 
+# —— 垂直角"展开第二测回"智能滚屏标定（口径同模块 1，按本模块结构重标）：
+#    文本行≈20-22、TextField≈46、卡内边距 12×2、行距 10 ——
+_V_TOP = 505    # "展开第二测回"按钮所在行顶部到滚动内容顶端的估算距离：
+                # 站号行20+10 + 首测回(标题24+10+点名卡186[点名+点高各两行]+10+观测值卡205)+10 + 隔条20+10
+_V_H = 292      # 第二测回区块展开后的估算总高：标题行40 + 间距10 + 读数卡205
+                # + 半个输入框23 + 底边距14（+37 校正口径同模块 1：否则斜距行只显示一半）
+
 def create_vertical_angle_view(page: ft.Page, on_back, save_callback, initial_data=None, records_db=None):
     loaded_data = copy.deepcopy(initial_data.get("data", [{}])) if initial_data else [{}]
     if isinstance(loaded_data, dict): 
@@ -1181,6 +1271,9 @@ def create_vertical_angle_view(page: ft.Page, on_back, save_callback, initial_da
 
     state = {
         "second_set_open": False, 
+        "scroll_pixels": None,    # 最近一次 on_scroll 的滚动偏移（None=从未滚动）
+        "scroll_viewport": None,  # 最近一次 on_scroll 的视口高度
+        "scroll_max": None,       # 最近一次 on_scroll 的最大可滚偏移
         "record_id": initial_data.get("id") if initial_data else None, 
         "record_name": initial_data.get("name") if initial_data else "未命名手簿", 
         "is_dirty": False, 
@@ -1604,12 +1697,44 @@ def create_vertical_angle_view(page: ft.Page, on_back, save_callback, initial_da
     first_set = ft.Column([ft.Row([ft.Icon(ft.Icons.LOOKS_ONE, size=20, color=ft.Colors.BLUE_600), ft.Text("第一测回", size=16, weight="bold")]), create_set_content("set1", show_points=True)], spacing=10)
     second_set_container = ft.Column([create_set_content("set2", show_points=False)], visible=False)
 
+    def track_scroll(e):
+        # 记录最近一次滚动度量：pixels=滚动偏移、viewport_dimension=视口高、max_scroll_extent=最大可滚偏移。
+        # 供"展开第二测回"智能滚屏判断用，只写 state，不触发界面刷新。
+        state["scroll_pixels"] = e.pixels
+        state["scroll_viewport"] = e.viewport_dimension
+        state["scroll_max"] = e.max_scroll_extent
+
     async def toggle_second_set(e):
         state["second_set_open"] = not state["second_set_open"]
         second_set_container.visible = state["second_set_open"]
         e.control.icon = ft.Icons.KEYBOARD_ARROW_UP if state["second_set_open"] else ft.Icons.KEYBOARD_ARROW_DOWN
         e.control.content.value = "收起第二测回" if state["second_set_open"] else "展开第二测回"
         page.update()
+        if not state["second_set_open"]:
+            return
+        # 展开后智能滚屏（判据同测回法）：
+        # 无成果区滚到底即精确解（区块底端=内容底端，装得下被钳制为 0 自然不滚）；
+        # 展开高超过视口不滚；有成果区按模块 1 估算法（见下方注释）。
+        await asyncio.sleep(0.12)
+        vp = state.get("scroll_viewport")
+        if not calc_result_container.visible:
+            if vp and _V_H >= vp:
+                return
+            await safe_scroll(scroll_content, offset=-1, duration=400)
+            return
+        # 有成果区：判据对齐模块 1（测回法）——估算按钮距视口底端的剩余空间，
+        # 放得下则不滚；放不下只向下滚差值。不再把成果区高度卷进估算（旧法
+        # "滚动余量+展开高−成果高"会把成果区也滚出去，滚幅偏大）。
+        o = state.get("scroll_pixels")
+        if vp and o is not None:
+            v = vp
+        else:
+            v = page.height - _VP_FALLBACK
+            o = 0
+        d_bottom = v - (_V_TOP - o)                 # 按钮距视口底端的剩余空间
+        if d_bottom >= _V_H:
+            return                                   # 完全放得下，无需滚屏
+        await safe_scroll(scroll_content, delta=_V_H - d_bottom + 8, duration=400)
 
     second_set_header = ft.TextButton(content=ft.Text("展开第二测回"), icon=ft.Icons.KEYBOARD_ARROW_DOWN, on_click=toggle_second_set, style=ft.ButtonStyle(color=ft.Colors.BLUE_GREY_400))
     second_set_section = ft.Column([ft.Row([ft.Icon(ft.Icons.LOOKS_TWO, size=20, color=ft.Colors.BLUE_GREY_400), ft.Text("第二测回", size=16, weight="bold", color=ft.Colors.BLUE_GREY_400), ft.VerticalDivider(), second_set_header]), second_set_container], spacing=10)
@@ -1620,7 +1745,7 @@ def create_vertical_angle_view(page: ft.Page, on_back, save_callback, initial_da
         ft.Divider(height=20, color=ft.Colors.TRANSPARENT), 
         second_set_section, 
         calc_result_container
-    ], scroll=ft.ScrollMode.AUTO, expand=True)
+    ], scroll=ft.ScrollMode.AUTO, expand=True, on_scroll=track_scroll)
 
     scroll_wrapper = ft.Container(content=scroll_content, expand=True, padding=15)
     

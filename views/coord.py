@@ -7,7 +7,7 @@ import asyncio
 import copy
 import numpy as np
 from common import MD_CARD_STYLE, MD_HEADER_SHADOW, bankers_round, close_dialog, deg2dms_str, dms2deg, open_dialog, safe_scroll, show_toast, show_warning, validate_dms, validate_positive_num
-from geo_calc import COORD_DISP_TO_KEY, COORD_SYS_ITEMS, SCALE_MAP, _dt_bursa, _dt_iteration, _dt_rot, _dt_sigma, calc_area_sheets, calc_sheet_coords, calc_single_sheet, gauss_L0_to_zone, gauss_check_y, gauss_format_y, gauss_forward, gauss_inverse, gauss_parse_y, gauss_zone_to_L0, gauss_zone_transform
+from geo_calc import COORD_DISP_TO_KEY, COORD_SYS_ITEMS, SCALE_MAP, _dt2_apply, _dt2_solve, _dt_bursa, _dt_iteration, _dt_rot, _dt_sigma, _ga_eval, _ga_solve, blh_to_xyz, calc_area_sheets, calc_sheet_coords, calc_single_sheet, gauss_L0_to_zone, gauss_check_y, gauss_format_y, gauss_forward, gauss_inverse, gauss_parse_y, gauss_zone_to_L0, gauss_zone_transform, xyz_to_blh
 
 
 
@@ -1426,6 +1426,10 @@ def create_gauss_calc_view(page, on_back, save_callback, initial_data=None, reco
     return ft.Column([header, scroll_wrapper, footer], expand=True, spacing=0)
 
 
+# =============================================================================
+# 模块 13：基准转换 (七参数坐标转换)
+# =============================================================================
+
 def create_datum_transform_view(page, on_back, save_callback, initial_data=None, records_db=None):
     def _new_point():
         return {"sx": "", "sy": "", "sz": "", "tx": "", "ty": "", "tz": ""}
@@ -1818,3 +1822,1113 @@ def create_datum_transform_view(page, on_back, save_callback, initial_data=None,
     if state["data"].get("params"):
         render_params_block(state["data"]["params"])
     return ft.Column([header, scroll, model_row, footer], expand=True, spacing=0)
+
+
+# =============================================================================
+# 模块 14：二维转换（四参数坐标转换）
+# 结构参照基准转换视图：公共点(仅X/Y) + 待转点(仅X/Y) + 四参数结果；
+# 差异：最少2个公共点、无 Z 项、无模型选择开关。
+# =============================================================================
+def create_two_d_transform_view(page, on_back, save_callback, initial_data=None, records_db=None):
+    def _new_point():
+        return {"sx": "", "sy": "", "tx": "", "ty": ""}
+
+    def _new_convert():
+        return {"ax": "", "ay": "", "bx": "", "by": ""}
+
+    # ---- 载入数据 ----  注意：必须 deepcopy，否则 state["data"] 与 records_db 记录共享引用，
+    #   增删公共点/改字段会变成原地改 records_db，导致“保存/不保存”都落盘。
+    loaded = copy.deepcopy(initial_data.get("data", {})) if initial_data else {}
+    pts = loaded.get("points")
+    if not isinstance(pts, list) or len(pts) < 2 or not all(isinstance(p, dict) for p in pts):
+        pts = [_new_point() for _ in range(2)]
+    cvs = loaded.get("converts")
+    if not isinstance(cvs, list) or len(cvs) < 1 or not all(isinstance(c, dict) for c in cvs):
+        cvs = [_new_convert()]
+
+    state = {
+        "record_id": initial_data.get("id") if initial_data else None,
+        "record_name": initial_data.get("name") if initial_data else "未命名手簿",
+        "is_dirty": False,
+        "data": {"points": pts, "converts": cvs, "params": loaded.get("params")},
+    }
+    title_text = ft.Text(state["record_name"], size=18, weight="bold", expand=True, text_align="center", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+
+    def on_back_click(e):
+        if state["is_dirty"]:
+            def on_save_and_exit(ev):
+                close_dialog(page, exit_dlg)
+                if not state["record_id"]: prompt_for_name(on_success_callback=lambda: on_back(e), is_exiting=True)
+                else: do_save(is_exiting=True); on_back(e)
+
+            exit_dlg = ft.AlertDialog(
+                title=ft.Text("提示"),
+                content=ft.Text("当前记录已修改，是否保存？"),
+                actions=[
+                    ft.TextButton(content=ft.Text("取消"), on_click=lambda ev: close_dialog(page, exit_dlg)),
+                    ft.TextButton(content=ft.Text("不保存"), on_click=lambda ev: close_dialog(page, exit_dlg) or on_back(e)),
+                    ft.Container(content=ft.Text("保存", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.BLUE_600, padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_save_and_exit, ink=True)
+                ]
+            )
+            open_dialog(page, exit_dlg)
+        else:
+            on_back(e)
+
+    # ---------- 保存 / 新增 / 命名（允许先保存再计算）----------
+    def do_save(is_exiting=False):
+        save_callback({
+            "id": state["record_id"], "name": state["record_name"], "type": "二维转换",
+            "category": "常用换算", "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "data": dict(state["data"]),
+        })
+        state["is_dirty"] = False
+
+    def prompt_for_name(on_success_callback=None, is_exiting=False):
+        name_input = ft.TextField(label="手簿名称", value=f"二维转换-{datetime.datetime.now().strftime('%Y-%m-%d')}")
+
+        def on_confirm(ev):
+            new_name = name_input.value.strip()
+            if not new_name:
+                return
+            existing = next((r for r in (records_db or []) if r["name"] == new_name and r["id"] != state["record_id"]), None)
+            if existing:
+                def on_overwrite(e):
+                    state["record_name"] = new_name
+                    state["record_id"] = existing["id"]
+                    title_text.value = state["record_name"]
+                    close_dialog(page, overwrite_dlg)
+                    close_dialog(page, dlg)
+                    do_save(is_exiting=is_exiting)
+                    show_toast(page, f"已覆盖原有手簿: {state['record_name']}")
+                    if on_success_callback:
+                        on_success_callback()
+
+                overwrite_dlg = ft.AlertDialog(
+                    title=ft.Text("提示: 文件已存在", size=16, weight="bold"),
+                    content=ft.Text(f"存储库中已存在名为 '{new_name}' 的手簿。\n是否直接覆盖该文件？"),
+                    actions=[
+                        ft.TextButton(content=ft.Text("更改名称"), on_click=lambda e: close_dialog(page, overwrite_dlg)),
+                        ft.Container(content=ft.Text("覆盖原有文件", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.RED_500,
+                                     padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_overwrite, ink=True)
+                    ]
+                )
+                open_dialog(page, overwrite_dlg)
+            else:
+                state["record_name"] = new_name
+                state["record_id"] = state["record_id"] or f"2D_{datetime.datetime.now().timestamp()}"
+                title_text.value = state["record_name"]
+                close_dialog(page, dlg)
+                do_save(is_exiting=is_exiting)
+                show_toast(page, f"已保存: {state['record_name']}")
+                if on_success_callback:
+                    on_success_callback()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("保存并命名"),
+            content=name_input,
+            actions=[
+                ft.TextButton(content=ft.Text("取消"), on_click=lambda _: close_dialog(page, dlg)),
+                ft.Container(content=ft.Text("保存", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.BLUE_600,
+                             padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_confirm, ink=True)
+            ]
+        )
+        open_dialog(page, dlg)
+
+    def on_save_click(e):
+        if not state["record_id"]:
+            prompt_for_name(is_exiting=False)          # 未命名 → 弹"保存并命名"
+        else:
+            do_save(is_exiting=False)                  # 已命名 → 直接存
+            show_toast(page, "数据已更新")
+
+    def on_new_click(e):
+        if state["is_dirty"]:
+            do_save(is_exiting=True)
+            show_toast(page, "当前手簿已自动存档，开启新记录")
+        state["record_id"] = None
+        state["record_name"] = "未命名手簿"
+        state["data"] = {"points": [_new_point() for _ in range(2)], "converts": [_new_convert()], "params": None}
+        state["is_dirty"] = False
+        title_text.value = state["record_name"]
+        build_points_ui()
+        build_converts_ui()
+        params_col.controls.clear()
+        params_col.controls.append(ft.Container(height=120))
+        page.update()
+
+    def render_params_block(p):
+        params_col.controls.clear()
+        if p is None:
+            params_col.controls.append(ft.Container(height=120))  # 空占位，与初始一致
+            page.update()
+            return
+        sigma_line = (f"单位权中误差 σ₀={p['sigma0']:.3f} m" if p.get("dof", 0) > 0
+                      else "单位权中误差 σ₀=--（2点无多余观测）")
+        params_col.controls.append(ft.SelectionArea(content=ft.Column([
+            ft.Text("四参数解算结果", weight="bold", size=13, color=ft.Colors.BLUE_700),
+            ft.Text(f"ΔX={p['dx']:.5f} m   ΔY={p['dy']:.5f} m"),
+            ft.Text(f"旋转角 α={p['alpha_sec']:.5f}″"),
+            ft.Text(f"尺度 m={p['m_ppm']:.5f} ppm"),
+            ft.Text(sigma_line, color=ft.Colors.RED_600),
+        ], spacing=4)))
+
+    def _clear_results():
+        # 数据变化：清四参数 + 转后坐标，重渲染空占位
+        state["data"]["params"] = None
+        for c in state["data"]["converts"]:
+            c["bx"] = ""
+            c["by"] = ""
+        render_params_block(None)
+        build_converts_ui()
+
+    def on_calc_click(e):
+        pts = state["data"]["points"]
+        cvs = state["data"]["converts"]
+        # ---- ① 公共点有效性校验 ----
+        S, T = [], []
+        lbl = {"sx": "X源", "sy": "Y源", "tx": "X目", "ty": "Y目"}
+        for i, p in enumerate(pts):
+            rs, rt = [], []
+            for k in ("sx", "sy", "tx", "ty"):
+                v = (p.get(k) or "").strip()
+                if v == "":
+                    show_toast(page, f"公共点{i+1} 的{lbl[k]}不能为空")
+                    return
+                try:
+                    val = float(v)
+                except ValueError:
+                    show_toast(page, f"公共点{i+1} 的{lbl[k]}不是有效数值")
+                    return
+                (rs if k.startswith("s") else rt).append(val)
+            S.append(rs)
+            T.append(rt)
+        if len(S) < 2:
+            show_toast(page, "至少需要 2 个公共点")
+            return
+        # ---- ② 转换点有效性校验 ----
+        conv_in = []
+        for i, c in enumerate(cvs):
+            vals, has = [], False
+            for k in ("ax", "ay"):
+                v = (c.get(k) or "").strip()
+                if v == "":
+                    vals.append(None)
+                else:
+                    try:
+                        vals.append(float(v))
+                        has = True
+                    except ValueError:
+                        show_toast(page, f"转换{i+1} 的待转数据不是有效数值")
+                        return
+            if len(cvs) == 1:
+                if has and any(x is None for x in vals):
+                    show_toast(page, "转换1 的待转X/Y 需全填或全空")
+                    return
+                conv_in.append(None if not has else vals)
+            else:
+                if any(x is None for x in vals):
+                    show_toast(page, f"转换{i+1} 的待转X/Y 不能为空")
+                    return
+                conv_in.append(vals)
+        # ---- ③ 四参数解算（线性最小二乘）----
+        S = np.array(S, float)
+        T = np.array(T, float)
+        dx, dy, a, b, sig = _dt2_solve(S, T)
+        dof = 2 * len(S) - 4
+        # ---- ④ 存储 + 渲染四参数 ----
+        state["data"]["params"] = {"dx": dx, "dy": dy,
+                                   "alpha_sec": math.degrees(math.atan2(b, a)) * 3600.0,
+                                   "m_ppm": (math.hypot(a, b) - 1.0) * 1e6,
+                                   "sigma0": sig, "dof": dof}
+        render_params_block(state["data"]["params"])
+        # ---- ⑤ 渲染转后坐标（.4f）----
+        for i, cin in enumerate(conv_in):
+            if cin is None:
+                continue
+            X, Y = _dt2_apply(dx, dy, a, b, cin[0], cin[1])
+            state["data"]["converts"][i]["bx"] = f"{X:.4f}"
+            state["data"]["converts"][i]["by"] = f"{Y:.4f}"
+        build_converts_ui()
+        state["is_dirty"] = True
+        page.update()
+        # 理论滚动偏移：二维转换 scroll = 36 + 190·np（np=公共点个数；卡片比基准转换少一行Z），定位到第1个待转点卡片头部
+        np_ = len(state["data"]["points"]); nc_ = len(state["data"]["converts"])
+        calc_offset = 36 + 190 * np_
+        asyncio.create_task(safe_scroll(scroll, offset=calc_offset, duration=400))
+
+    # ---------- 控件工厂 ----------
+    def make_field(label, value="", on_change=None, read_only=False):
+        tf = ft.TextField(label=label, value=value, text_size=13, content_padding=12, border_radius=8, expand=True,
+                          border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600,
+                          bgcolor=ft.Colors.TRANSPARENT, keyboard_type=ft.KeyboardType.NUMBER, read_only=read_only)
+        if on_change:
+            tf.on_change = on_change
+        return tf
+
+    # ---------- 公共点（动态增删，最少2个）----------
+    points_container = ft.Column(spacing=10)
+
+    def set_point(idx, key, val):
+        state["data"]["points"][idx][key] = val
+        state["is_dirty"] = True
+        _clear_results()
+
+    def make_point_card(idx, n):
+        p = state["data"]["points"][idx]
+        del_btn = ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ft.Colors.RED_400, tooltip="删除该公共点",
+                                visible=(n > 2), on_click=lambda e, i=idx: del_point(i))
+        title_row = ft.Row([ft.Text(f"已知：公共点 {idx+1}", weight="bold", size=13, color=ft.Colors.BLUE_700), del_btn],
+                           alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        sx = make_field("X源(m)", p.get("sx", ""), lambda e, i=idx, k="sx": set_point(i, k, e.control.value))
+        tx = make_field("X目(m)", p.get("tx", ""), lambda e, i=idx, k="tx": set_point(i, k, e.control.value))
+        sy = make_field("Y源(m)", p.get("sy", ""), lambda e, i=idx, k="sy": set_point(i, k, e.control.value))
+        ty = make_field("Y目(m)", p.get("ty", ""), lambda e, i=idx, k="ty": set_point(i, k, e.control.value))
+        return ft.Container(content=ft.Column([
+            title_row,
+            ft.Row([sx, tx], spacing=8),
+            ft.Row([sy, ty], spacing=8),
+        ], spacing=10), **MD_CARD_STYLE)
+
+    def make_add_point_btn():
+        return ft.Container(content=ft.TextButton(content=ft.Text("＋ 新增公共点", color=ft.Colors.GREEN_600), on_click=add_point),
+                             padding=5, alignment=ft.Alignment(0, 0))
+
+    def build_points_ui():
+        points_container.controls.clear()
+        n = len(state["data"]["points"])
+        for i in range(n):
+            points_container.controls.append(make_point_card(i, n))
+        points_container.controls.append(make_add_point_btn())
+        page.update()
+
+    def add_point(e):
+        state["data"]["points"].append(_new_point())
+        state["is_dirty"] = True
+        _clear_results()
+        build_points_ui()
+
+    def del_point(idx):
+        state["data"]["points"].pop(idx)
+        state["is_dirty"] = True
+        _clear_results()
+        build_points_ui()
+
+    # ---------- 转换点（动态增删 / 清空）----------
+    converts_container = ft.Column(spacing=10)
+
+    def set_convert(idx, key, val):
+        state["data"]["converts"][idx][key] = val
+        state["is_dirty"] = True
+        _clear_results()
+
+    def make_convert_card(idx):
+        c = state["data"]["converts"][idx]
+        if idx == 0:
+            del_btn = ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ft.Colors.RED_400, tooltip="清空该转换点内容",
+                                    on_click=lambda e: clear_convert(0))
+        else:
+            del_btn = ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ft.Colors.RED_400, tooltip="删除该转换点",
+                                    on_click=lambda e, i=idx: del_convert(i))
+        title_row = ft.Row([ft.Text(f"转换 {idx+1}", weight="bold", size=14, color=ft.Colors.BLUE_700), del_btn],
+                           alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        ax = make_field("待转X(m)", c.get("ax", ""), lambda e, i=idx, k="ax": set_convert(i, k, e.control.value))
+        bx = make_field("转后X(m)", c.get("bx", ""), lambda e, i=idx, k="bx": set_convert(i, k, e.control.value), read_only=True)
+        ay = make_field("待转Y(m)", c.get("ay", ""), lambda e, i=idx, k="ay": set_convert(i, k, e.control.value))
+        by = make_field("转后Y(m)", c.get("by", ""), lambda e, i=idx, k="by": set_convert(i, k, e.control.value), read_only=True)
+        return ft.Container(content=ft.Column([
+            title_row,
+            ft.Row([ax, bx], spacing=8),
+            ft.Row([ay, by], spacing=8),
+        ], spacing=10), **MD_CARD_STYLE)
+
+    def make_add_convert_btn():
+        return ft.Container(content=ft.TextButton(content=ft.Text("＋ 新增待转点", color=ft.Colors.GREEN_600), on_click=add_convert),
+                             padding=5, alignment=ft.Alignment(0, 0))
+
+    def build_converts_ui():
+        converts_container.controls.clear()
+        for i in range(len(state["data"]["converts"])):
+            converts_container.controls.append(make_convert_card(i))
+        converts_container.controls.append(make_add_convert_btn())
+        page.update()
+
+    def add_convert(e):
+        state["data"]["converts"].append(_new_convert())
+        state["is_dirty"] = True
+        _clear_results()
+        build_converts_ui()
+
+    def del_convert(idx):
+        state["data"]["converts"].pop(idx)
+        state["is_dirty"] = True
+        _clear_results()
+        build_converts_ui()
+
+    def clear_convert(idx):
+        state["data"]["converts"][idx] = _new_convert()
+        state["is_dirty"] = True
+        _clear_results()
+        build_converts_ui()
+
+    # ---------- 四参数结果占位（保留空白区间，去底色）----------
+    params_col = ft.Column([ft.Container(height=120)], spacing=10)  # 占位：公共点区与转换区之间留足空白；计算后渲染四参数
+    params_block = ft.Container(content=params_col, padding=12, key="two_d_params_result")
+
+    # ---------- 头部 / 滚动区 / 底部 ----------
+    action_buttons = ft.Row([
+        ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, on_click=on_new_click, icon_color=ft.Colors.GREEN_600, tooltip="新建手簿"),
+        ft.IconButton(ft.Icons.SAVE_OUTLINED, on_click=on_save_click, icon_color=ft.Colors.BLUE_600, tooltip="保存"),
+    ], spacing=0)
+    header = ft.Container(content=ft.Row([
+        ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, on_click=on_back_click, icon_size=20),
+        title_text, action_buttons,
+    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=5, bgcolor=ft.Colors.WHITE, shadow=MD_HEADER_SHADOW)
+
+    scroll = ft.Column([
+        points_container, converts_container, params_block,
+    ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)
+
+    footer = ft.Container(content=ft.Column([ft.Row([
+        ft.Container(content=ft.Text("计算", color=ft.Colors.WHITE, weight="bold", size=16),
+                     bgcolor=ft.Colors.BLUE_600, expand=True, height=45, alignment=ft.Alignment(0, 0),
+                     border_radius=8, on_click=on_calc_click, ink=True),
+    ])]), padding=10, bgcolor=ft.Colors.WHITE,
+        border=ft.border.Border(top=ft.border.BorderSide(1, ft.Colors.BLUE_GREY_100)))
+
+    build_points_ui()
+    build_converts_ui()
+    if state["data"].get("params"):
+        render_params_block(state["data"]["params"])
+    return ft.Column([header, scroll, footer], expand=True, spacing=0)
+
+
+# =============================================================================
+# 模块 15：高程异常计算（曲面拟合）
+# 结构参照基准转换视图：公共点 X(m)/Y(m)/大地高H(m)/正常高H(m)，ζ=H−H正常；
+# 底部开关：平面拟合(默认关·不可用) ↔ 曲面拟合；公共点>4 开关可用。
+# 曲面模型按公共点数自适应（无UI选择）：4<n≤6 → 四参数二次曲面；n>6 → 六参数二次曲面。
+# =============================================================================
+def create_geoid_undulation_view(page, on_back, save_callback, initial_data=None, records_db=None):
+    GA_NAMES = {"plane": "平面拟合", "quad4": "四参数二次曲面", "quad6": "六参数二次曲面"}
+
+    def _new_point():
+        return {"x": "", "y": "", "hg": "", "hn": ""}
+
+    def _new_convert():
+        return {"ax": "", "ay": "", "bz": ""}
+
+    # ---- 载入数据 ----  注意：必须 deepcopy，否则 state["data"] 与 records_db 记录共享引用，
+    #   增删公共点/改字段会变成原地改 records_db，导致“保存/不保存”都落盘。
+    loaded = copy.deepcopy(initial_data.get("data", {})) if initial_data else {}
+    pts = loaded.get("points")
+    if not isinstance(pts, list) or len(pts) < 3 or not all(isinstance(p, dict) for p in pts):
+        pts = [_new_point() for _ in range(3)]
+    cvs = loaded.get("converts")
+    if not isinstance(cvs, list) or len(cvs) < 1 or not all(isinstance(c, dict) for c in cvs):
+        cvs = [_new_convert()]
+
+    state = {
+        "record_id": initial_data.get("id") if initial_data else None,
+        "record_name": initial_data.get("name") if initial_data else "未命名手簿",
+        "is_dirty": False,
+        "data": {"points": pts, "converts": cvs,
+                 "fit_on": bool(loaded.get("fit_on", False)),
+                 "params": loaded.get("params")},
+    }
+    title_text = ft.Text(state["record_name"], size=18, weight="bold", expand=True, text_align="center", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+
+    def on_back_click(e):
+        if state["is_dirty"]:
+            def on_save_and_exit(ev):
+                close_dialog(page, exit_dlg)
+                if not state["record_id"]: prompt_for_name(on_success_callback=lambda: on_back(e), is_exiting=True)
+                else: do_save(is_exiting=True); on_back(e)
+
+            exit_dlg = ft.AlertDialog(
+                title=ft.Text("提示"),
+                content=ft.Text("当前记录已修改，是否保存？"),
+                actions=[
+                    ft.TextButton(content=ft.Text("取消"), on_click=lambda ev: close_dialog(page, exit_dlg)),
+                    ft.TextButton(content=ft.Text("不保存"), on_click=lambda ev: close_dialog(page, exit_dlg) or on_back(e)),
+                    ft.Container(content=ft.Text("保存", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.BLUE_600, padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_save_and_exit, ink=True)
+                ]
+            )
+            open_dialog(page, exit_dlg)
+        else:
+            on_back(e)
+
+    # ---------- 保存 / 新增 / 命名（允许先保存再计算）----------
+    def do_save(is_exiting=False):
+        save_callback({
+            "id": state["record_id"], "name": state["record_name"], "type": "高程异常计算",
+            "category": "常用换算", "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "data": dict(state["data"]),
+        })
+        state["is_dirty"] = False
+
+    def prompt_for_name(on_success_callback=None, is_exiting=False):
+        name_input = ft.TextField(label="手簿名称", value=f"高程异常计算-{datetime.datetime.now().strftime('%Y-%m-%d')}")
+
+        def on_confirm(ev):
+            new_name = name_input.value.strip()
+            if not new_name:
+                return
+            existing = next((r for r in (records_db or []) if r["name"] == new_name and r["id"] != state["record_id"]), None)
+            if existing:
+                def on_overwrite(e):
+                    state["record_name"] = new_name
+                    state["record_id"] = existing["id"]
+                    title_text.value = state["record_name"]
+                    close_dialog(page, overwrite_dlg)
+                    close_dialog(page, dlg)
+                    do_save(is_exiting=is_exiting)
+                    show_toast(page, f"已覆盖原有手簿: {state['record_name']}")
+                    if on_success_callback:
+                        on_success_callback()
+
+                overwrite_dlg = ft.AlertDialog(
+                    title=ft.Text("提示: 文件已存在", size=16, weight="bold"),
+                    content=ft.Text(f"存储库中已存在名为 '{new_name}' 的手簿。\n是否直接覆盖该文件？"),
+                    actions=[
+                        ft.TextButton(content=ft.Text("更改名称"), on_click=lambda e: close_dialog(page, overwrite_dlg)),
+                        ft.Container(content=ft.Text("覆盖原有文件", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.RED_500,
+                                     padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_overwrite, ink=True)
+                    ]
+                )
+                open_dialog(page, overwrite_dlg)
+            else:
+                state["record_name"] = new_name
+                state["record_id"] = state["record_id"] or f"GU_{datetime.datetime.now().timestamp()}"
+                title_text.value = state["record_name"]
+                close_dialog(page, dlg)
+                do_save(is_exiting=is_exiting)
+                show_toast(page, f"已保存: {state['record_name']}")
+                if on_success_callback:
+                    on_success_callback()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("保存并命名"),
+            content=name_input,
+            actions=[
+                ft.TextButton(content=ft.Text("取消"), on_click=lambda _: close_dialog(page, dlg)),
+                ft.Container(content=ft.Text("保存", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.BLUE_600,
+                             padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_confirm, ink=True)
+            ]
+        )
+        open_dialog(page, dlg)
+
+    def on_save_click(e):
+        if not state["record_id"]:
+            prompt_for_name(is_exiting=False)          # 未命名 → 弹"保存并命名"
+        else:
+            do_save(is_exiting=False)                  # 已命名 → 直接存
+            show_toast(page, "数据已更新")
+
+    def on_new_click(e):
+        if state["is_dirty"]:
+            do_save(is_exiting=True)
+            show_toast(page, "当前手簿已自动存档，开启新记录")
+        state["record_id"] = None
+        state["record_name"] = "未命名手簿"
+        state["data"] = {"points": [_new_point() for _ in range(3)], "converts": [_new_convert()],
+                         "fit_on": False, "params": None}
+        state["is_dirty"] = False
+        title_text.value = state["record_name"]
+        build_points_ui()
+        build_converts_ui()
+        refresh_fit_ui()
+        params_col.controls.clear()
+        params_col.controls.append(ft.Container(height=120))
+        page.update()
+
+    def render_params_block(p):
+        params_col.controls.clear()
+        if p is None:
+            params_col.controls.append(ft.Container(height=120))  # 空占位，与初始一致
+            page.update()
+            return
+        sigma_line = (f"单位权中误差 σ₀={p['sigma0']:.4f} m" if p.get("dof", 0) > 0
+                      else "单位权中误差 σ₀=--（无多余观测）")
+        lines = [ft.Text(f"拟合参数结果（{GA_NAMES.get(p['model'], p['model'])}）", weight="bold", size=13, color=ft.Colors.BLUE_700)]
+        lines += [ft.Text(f"a{i}={c:.6g}") for i, c in enumerate(p["coef"])]
+        lines.append(ft.Text(sigma_line, color=ft.Colors.RED_600))
+        params_col.controls.append(ft.SelectionArea(content=ft.Column(lines, spacing=4)))
+
+    def _clear_results():
+        # 数据变化：清拟合参数 + 高程异常ζ，重渲染空占位
+        state["data"]["params"] = None
+        for c in state["data"]["converts"]:
+            c["bz"] = ""
+        render_params_block(None)
+        build_converts_ui()
+
+    def on_calc_click(e):
+        pts = state["data"]["points"]
+        cvs = state["data"]["converts"]
+        n = len(pts)
+        # ---- ① 公共点有效性校验（ζ = 大地高 − 正常高）----
+        XY, zeta = [], []
+        lbl = {"x": "X", "y": "Y", "hg": "大地高H", "hn": "正常高H"}
+        for i, p in enumerate(pts):
+            row = []
+            for k in ("x", "y", "hg", "hn"):
+                v = (p.get(k) or "").strip()
+                if v == "":
+                    show_toast(page, f"公共点{i+1} 的{lbl[k]}不能为空")
+                    return
+                try:
+                    row.append(float(v))
+                except ValueError:
+                    show_toast(page, f"公共点{i+1} 的{lbl[k]}不是有效数值")
+                    return
+            XY.append(row[:2])
+            zeta.append(row[2] - row[3])
+        if n < 3:
+            show_toast(page, "至少需要 3 个公共点")
+            return
+        # ---- ② 模型判定与点数校验（曲面模型按公共点数自适应，无UI选择）----
+        fit_on = state["data"].get("fit_on", False) and n > 4
+        model = ("quad6" if n > 6 else "quad4") if fit_on else "plane"
+        t = {"plane": 3, "quad4": 4, "quad6": 6}[model]
+        if n < t:
+            show_toast(page, f"{GA_NAMES[model]}至少需要 {t} 个公共点")
+            return
+        # ---- ③ 转换点有效性校验 ----
+        conv_in = []
+        for i, c in enumerate(cvs):
+            vals, has = [], False
+            for k in ("ax", "ay"):
+                v = (c.get(k) or "").strip()
+                if v == "":
+                    vals.append(None)
+                else:
+                    try:
+                        vals.append(float(v))
+                        has = True
+                    except ValueError:
+                        show_toast(page, f"转换{i+1} 的待转数据不是有效数值")
+                        return
+            if len(cvs) == 1:
+                if has and any(x is None for x in vals):
+                    show_toast(page, "转换1 的待转X/Y 需全填或全空")
+                    return
+                conv_in.append(None if not has else vals)
+            else:
+                if any(x is None for x in vals):
+                    show_toast(page, f"转换{i+1} 的待转X/Y 不能为空")
+                    return
+                conv_in.append(vals)
+        # ---- ④ 曲面拟合解算 ----
+        XY = np.array(XY, float)
+        zeta = np.array(zeta, float)
+        coef, sig, dof = _ga_solve(XY, zeta, model)
+        # ---- ⑤ 存储 + 渲染拟合参数 ----
+        state["data"]["params"] = {"model": model, "coef": [float(c) for c in coef],
+                                   "sigma0": sig, "dof": dof}
+        render_params_block(state["data"]["params"])
+        # ---- ⑥ 渲染转后高程异常（.4f）----
+        for i, cin in enumerate(conv_in):
+            if cin is None:
+                continue
+            z = _ga_eval(coef, model, cin[0], cin[1])
+            state["data"]["converts"][i]["bz"] = f"{z:.4f}"
+        build_converts_ui()
+        state["is_dirty"] = True
+        page.update()
+        # 理论滚动偏移：高程异常 scroll = 36 + 190·np（np=公共点个数），定位到第1个待转点卡片头部
+        np_ = n; nc_ = len(state["data"]["converts"])
+        calc_offset = 36 + 190 * np_
+        asyncio.create_task(safe_scroll(scroll, offset=calc_offset, duration=400))
+
+    # ---------- 控件工厂 ----------
+    def make_field(label, value="", on_change=None, read_only=False):
+        tf = ft.TextField(label=label, value=value, text_size=13, content_padding=12, border_radius=8, expand=True,
+                          border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600,
+                          bgcolor=ft.Colors.TRANSPARENT, keyboard_type=ft.KeyboardType.NUMBER, read_only=read_only)
+        if on_change:
+            tf.on_change = on_change
+        return tf
+
+    # ---------- 公共点（动态增删，最少3个）----------
+    points_container = ft.Column(spacing=10)
+
+    def set_point(idx, key, val):
+        state["data"]["points"][idx][key] = val
+        state["is_dirty"] = True
+        _clear_results()
+
+    def make_point_card(idx, n):
+        p = state["data"]["points"][idx]
+        del_btn = ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ft.Colors.RED_400, tooltip="删除该公共点",
+                                visible=(n > 3), on_click=lambda e, i=idx: del_point(i))
+        title_row = ft.Row([ft.Text(f"已知：公共点 {idx+1}", weight="bold", size=13, color=ft.Colors.BLUE_700), del_btn],
+                           alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        fx = make_field("X(m)", p.get("x", ""), lambda e, i=idx, k="x": set_point(i, k, e.control.value))
+        fy = make_field("Y(m)", p.get("y", ""), lambda e, i=idx, k="y": set_point(i, k, e.control.value))
+        fhg = make_field("大地高H(m)", p.get("hg", ""), lambda e, i=idx, k="hg": set_point(i, k, e.control.value))
+        fhn = make_field("正常高H(m)", p.get("hn", ""), lambda e, i=idx, k="hn": set_point(i, k, e.control.value))
+        return ft.Container(content=ft.Column([
+            title_row,
+            ft.Row([fx, fy], spacing=8),
+            ft.Row([fhg, fhn], spacing=8),
+        ], spacing=10), **MD_CARD_STYLE)
+
+    def make_add_point_btn():
+        return ft.Container(content=ft.TextButton(content=ft.Text("＋ 新增公共点", color=ft.Colors.GREEN_600), on_click=add_point),
+                             padding=5, alignment=ft.Alignment(0, 0))
+
+    def build_points_ui():
+        points_container.controls.clear()
+        n = len(state["data"]["points"])
+        for i in range(n):
+            points_container.controls.append(make_point_card(i, n))
+        points_container.controls.append(make_add_point_btn())
+        refresh_fit_ui()
+        page.update()
+
+    def add_point(e):
+        state["data"]["points"].append(_new_point())
+        state["is_dirty"] = True
+        _clear_results()
+        build_points_ui()
+
+    def del_point(idx):
+        state["data"]["points"].pop(idx)
+        state["is_dirty"] = True
+        _clear_results()
+        build_points_ui()
+
+    # ---------- 转换点（动态增删 / 清空）----------
+    converts_container = ft.Column(spacing=10)
+
+    def set_convert(idx, key, val):
+        state["data"]["converts"][idx][key] = val
+        state["is_dirty"] = True
+        _clear_results()
+
+    def make_convert_card(idx):
+        c = state["data"]["converts"][idx]
+        if idx == 0:
+            del_btn = ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ft.Colors.RED_400, tooltip="清空该转换点内容",
+                                    on_click=lambda e: clear_convert(0))
+        else:
+            del_btn = ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=ft.Colors.RED_400, tooltip="删除该转换点",
+                                    on_click=lambda e, i=idx: del_convert(i))
+        title_row = ft.Row([ft.Text(f"转换 {idx+1}", weight="bold", size=14, color=ft.Colors.BLUE_700), del_btn],
+                           alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        ax = make_field("待转X(m)", c.get("ax", ""), lambda e, i=idx, k="ax": set_convert(i, k, e.control.value))
+        ay = make_field("待转Y(m)", c.get("ay", ""), lambda e, i=idx, k="ay": set_convert(i, k, e.control.value))
+        bz = make_field("高程异常ζ(m)", c.get("bz", ""), read_only=True)
+        return ft.Container(content=ft.Column([
+            title_row,
+            ft.Row([ax, ay], spacing=8),
+            ft.Row([bz], spacing=8),
+        ], spacing=10), **MD_CARD_STYLE)
+
+    def make_add_convert_btn():
+        return ft.Container(content=ft.TextButton(content=ft.Text("＋ 新增待转点", color=ft.Colors.GREEN_600), on_click=add_convert),
+                             padding=5, alignment=ft.Alignment(0, 0))
+
+    def build_converts_ui():
+        converts_container.controls.clear()
+        for i in range(len(state["data"]["converts"])):
+            converts_container.controls.append(make_convert_card(i))
+        converts_container.controls.append(make_add_convert_btn())
+        page.update()
+
+    def add_convert(e):
+        state["data"]["converts"].append(_new_convert())
+        state["is_dirty"] = True
+        _clear_results()
+        build_converts_ui()
+
+    def del_convert(idx):
+        state["data"]["converts"].pop(idx)
+        state["is_dirty"] = True
+        _clear_results()
+        build_converts_ui()
+
+    def clear_convert(idx):
+        state["data"]["converts"][idx] = _new_convert()
+        state["is_dirty"] = True
+        _clear_results()
+        build_converts_ui()
+
+    # ---------- 拟合参数结果占位 ----------
+    params_col = ft.Column([ft.Container(height=120)], spacing=10)  # 占位：公共点区与转换区之间留足空白；计算后渲染拟合参数
+    params_block = ft.Container(content=params_col, padding=12, key="geoid_params_result")
+
+    # ---------- 头部 / 滚动区 ----------
+    action_buttons = ft.Row([
+        ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, on_click=on_new_click, icon_color=ft.Colors.GREEN_600, tooltip="新建手簿"),
+        ft.IconButton(ft.Icons.SAVE_OUTLINED, on_click=on_save_click, icon_color=ft.Colors.BLUE_600, tooltip="保存"),
+    ], spacing=0)
+    header = ft.Container(content=ft.Row([
+        ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, on_click=on_back_click, icon_size=20),
+        title_text, action_buttons,
+    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=5, bgcolor=ft.Colors.WHITE, shadow=MD_HEADER_SHADOW)
+
+    scroll = ft.Column([
+        points_container, converts_container, params_block,
+    ], scroll=ft.ScrollMode.AUTO, expand=True, spacing=16)
+
+    # ---------- 底部：拟合方式开关 ----------
+    # 开关：关="平面拟合"(默认，≤4点不可用)；开="曲面拟合"，
+    # 模型不设UI选择，计算时按公共点数自适应：4<n≤6→四参数二次曲面；n>6→六参数二次曲面。
+    def on_fit_change(e):
+        n = len(state["data"]["points"])
+        state["data"]["fit_on"] = bool(fit_switch.value) and n > 4
+        state["is_dirty"] = True
+        _clear_results()
+        refresh_fit_ui()
+        page.update()
+
+    fit_switch = ft.Switch(value=bool(state["data"].get("fit_on", False)), on_change=on_fit_change)
+    fit_label = ft.Text("平面拟合", size=13, color=ft.Colors.BLUE_GREY_700)
+
+    def refresh_fit_ui():
+        """按公共点数刷新开关可用性与标签。"""
+        n = len(state["data"]["points"])
+        on = bool(state["data"].get("fit_on", False)) and n > 4
+        fit_switch.disabled = n <= 4
+        fit_switch.value = on
+        fit_label.value = "曲面拟合" if on else "平面拟合"
+        fit_label.color = ft.Colors.INDIGO_700 if on else ft.Colors.BLUE_GREY_700
+
+    fit_row = ft.Container(content=ft.Row([fit_switch, fit_label], spacing=8),
+                           padding=ft.padding.Padding(12, 8, 12, 8), bgcolor=ft.Colors.WHITE)
+
+    footer = ft.Container(content=ft.Column([ft.Row([
+        ft.Container(content=ft.Text("计算", color=ft.Colors.WHITE, weight="bold", size=16),
+                     bgcolor=ft.Colors.BLUE_600, expand=True, height=45, alignment=ft.Alignment(0, 0),
+                     border_radius=8, on_click=on_calc_click, ink=True),
+    ])]), padding=10, bgcolor=ft.Colors.WHITE,
+        border=ft.border.Border(top=ft.border.BorderSide(1, ft.Colors.BLUE_GREY_100)))
+
+    build_points_ui()
+    build_converts_ui()
+    if state["data"].get("params"):
+        render_params_block(state["data"]["params"])
+    return ft.Column([header, scroll, fit_row, footer], expand=True, spacing=0)
+
+
+# =============================================================================
+# 模块 16：坐标转换 (大地坐标与空间直角坐标互算)
+# 结构参照高斯正反算视图：双 tab 互算；已知大地坐标(B,L,H)↔空间直角坐标(X,Y,Z)，
+# 设置仅参考椭球；保存 type="坐标转换"。
+# =============================================================================
+
+def create_coord_convert_view(page, on_back, save_callback, initial_data=None, records_db=None):
+    data_dict = copy.deepcopy(initial_data.get("data", {})) if initial_data else {}
+
+    # 本模块专用椭球选项（显示名, key）——不动共享 COORD_SYS_ITEMS，避免影响高斯正反算/基准转换
+    ELL_ITEMS = [
+        ("CGCS2000椭球", "CGCS2000"),
+        ("WGS84椭球", "WGS84"),
+        ("IAG75椭球（1980西安坐标系）", "XIAN1980"),
+        ("克拉索夫斯基椭球（1954北京坐标系）", "BEIJING1954"),
+    ]
+    ELL_DISP_TO_KEY = dict(ELL_ITEMS)    
+    state = {
+        "record_id": initial_data.get("id") if initial_data else None,
+        "record_name": initial_data.get("name") if initial_data else "未命名手簿",
+        "is_dirty": False,
+        "last_tab": data_dict.get("last_tab", 0),
+        "data": data_dict,
+    }
+
+    title_text = ft.Text(state["record_name"], size=18, weight="bold", expand=True,
+                         text_align="center", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+
+    # ---------- 结果渲染 ----------
+    def render_cc_results(res):
+        if res["type"] == "fwd":
+            return ft.Column([
+                ft.Text("计算结果 (BLH→XYH)：", size=16, weight="bold", color=ft.Colors.BLUE_GREY_900),
+                ft.Text(f"X: {res['X']:.4f} m", size=15, weight="bold", color=ft.Colors.RED_700),
+                ft.Text(f"Y: {res['Y']:.4f} m", size=15, weight="bold", color=ft.Colors.RED_700),
+                ft.Text(f"Z: {res['Z']:.4f} m", size=15, weight="bold", color=ft.Colors.RED_700),
+            ], spacing=5)
+        return ft.Column([
+            ft.Text("计算结果 (XYH→BLH)：", size=16, weight="bold", color=ft.Colors.BLUE_GREY_900),
+            ft.Text(f"纬度 B: {res['B']}", size=15, weight="bold", color=ft.Colors.RED_700),
+            ft.Text(f"经度 L: {res['L']}", size=15, weight="bold", color=ft.Colors.RED_700),
+            ft.Text(f"大地高 H: {res['H']:.4f} m", size=15, weight="bold", color=ft.Colors.RED_700),
+        ], spacing=5)
+
+    calc_result_container = ft.Container(key="cc_result_container", visible=False,
+                                         padding=15, bgcolor=ft.Colors.GREEN_50, border_radius=10)
+
+    def show_result(res, tab_key):
+        state["data"][tab_key] = res
+        calc_result_container.content = ft.SelectionArea(content=render_cc_results(res))
+        calc_result_container.visible = True
+        page.update()
+
+    def update_results_display():
+        key = {0: "fwd_result", 1: "inv_result"}[state["last_tab"]]
+        if key in state["data"]:
+            calc_result_container.content = ft.SelectionArea(content=render_cc_results(state["data"][key]))
+            calc_result_container.visible = True
+        else:
+            calc_result_container.visible = False
+        page.update()
+
+    def clear_tab_result(tab):
+        # 仅清该 tab 的计算结果（tab∈{"fwd","inv"}），输入参数保留
+        state["data"].pop(f"{tab}_result", None)
+        cur = {0: "fwd", 1: "inv"}[state["last_tab"]]
+        if cur == tab:
+            calc_result_container.visible = False
+
+    # ---------- 输入控件 ----------
+    input_controls = {}
+
+    def make_input(label, key, hint="", on_blur=None):
+        def _on_change(e):
+            state["data"][key] = e.control.value
+            state["is_dirty"] = True
+            tab = key.split("_")[0]
+            if tab in ("fwd", "inv"):
+                clear_tab_result(tab)
+        tf = ft.TextField(label=label, hint_text=hint, value=state["data"].get(key, ""),
+                          text_size=12, content_padding=12, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, expand=True,
+                          bgcolor=ft.Colors.WHITE, keyboard_type=ft.KeyboardType.NUMBER,
+                          on_change=_on_change, on_blur=on_blur)
+        input_controls[key] = tf
+        return tf
+
+    def make_ell_dropdown(value, key, tab):
+        dd = ft.Dropdown(label="参考椭球", expand=True, height=48,
+                         options=[ft.dropdown.Option(disp) for disp, _ in ELL_ITEMS],
+                         value=value, text_size=12, content_padding=12, dense=True, border_radius=8, border=ft.InputBorder.OUTLINE, border_color=ft.Colors.BLUE_GREY_200, focused_border_color=ft.Colors.INDIGO_600, filled=True, fill_color=ft.Colors.WHITE)
+        dd.on_select = lambda e: (state["data"].__setitem__(key, dd.value), state.__setitem__("is_dirty", True), clear_tab_result(tab), page.update())
+        return dd
+
+    # ====== BLH→XYH tab ======
+    fwd_ell_dd = make_ell_dropdown(data_dict.get("fwd_ell", "CGCS2000"), "fwd_ell", "fwd")
+    fwd_b_f = make_input("纬度 B(d.mmss)", "fwd_b", "如 30.2512")
+    fwd_l_f = make_input("经度 L(d.mmss)", "fwd_l", "如 114.1835")
+    fwd_h_f = make_input("大地高 H(m)", "fwd_h", "可为负")
+
+    fwd_content = ft.Container(content=ft.Column([
+        ft.Text("已知: 大地坐标", weight="bold", color=ft.Colors.BLUE_700),
+        ft.Row([fwd_b_f, fwd_l_f], spacing=8),
+        ft.Row([fwd_h_f]),
+        ft.Divider(height=1, color=ft.Colors.BLUE_GREY_50),
+        ft.Text("设置: 椭球参数", weight="bold", color=ft.Colors.BLUE_700),
+        ft.Row([fwd_ell_dd]),
+    ], spacing=10), **MD_CARD_STYLE, margin=ft.padding.Padding(0, 10, 0, 0), visible=(state["last_tab"] == 0))
+
+    # ====== XYH→BLH tab ======
+    inv_ell_dd = make_ell_dropdown(data_dict.get("inv_ell", "CGCS2000"), "inv_ell", "inv")
+    inv_x_f = make_input("X(m)", "inv_x", "空间直角坐标")
+    inv_y_f = make_input("Y(m)", "inv_y", "空间直角坐标")
+    inv_z_f = make_input("Z(m)", "inv_z", "空间直角坐标")
+
+    inv_content = ft.Container(content=ft.Column([
+        ft.Text("已知: 空间直角坐标", weight="bold", color=ft.Colors.BLUE_700),
+        ft.Row([inv_x_f, inv_y_f], spacing=8),
+        ft.Row([inv_z_f]),
+        ft.Divider(height=1, color=ft.Colors.BLUE_GREY_50),
+        ft.Text("设置: 椭球参数", weight="bold", color=ft.Colors.BLUE_700),
+        ft.Row([inv_ell_dd]),
+    ], spacing=10), **MD_CARD_STYLE, margin=ft.padding.Padding(0, 10, 0, 0), visible=(state["last_tab"] == 1))
+
+    # ---------- tabs ----------
+    tab_names = ["BLH→XYH", "XYH→BLH"]
+    contents = [fwd_content, inv_content]
+
+    def switch_tab_visually(idx):
+        for i, c in enumerate(contents):
+            c.visible = (i == idx)
+        for i, b in enumerate(tab_buttons):
+            b.content.color = ft.Colors.BLUE_600 if i == idx else ft.Colors.BLUE_GREY_400
+            b.border = ft.border.Border(bottom=ft.border.BorderSide(2, ft.Colors.BLUE_600)) if i == idx else None
+        page.update()
+
+    def switch_tab(e):
+        idx = e.control.data
+        state["last_tab"] = idx
+        state["is_dirty"] = True
+        switch_tab_visually(idx)
+        update_results_display()
+
+    tab_buttons = []
+    for i, name in enumerate(tab_names):
+        txt = ft.Text(name, weight="bold", color=ft.Colors.BLUE_600 if i == state["last_tab"] else ft.Colors.BLUE_GREY_400)
+        btn = ft.Container(content=txt, padding=10, data=i, on_click=switch_tab, ink=True,
+                           border=ft.border.Border(bottom=ft.border.BorderSide(2, ft.Colors.BLUE_600)) if i == state["last_tab"] else None)
+        tab_buttons.append(btn)
+    tabs_header = ft.Container(content=ft.Row(tab_buttons, alignment=ft.MainAxisAlignment.SPACE_AROUND), bgcolor=ft.Colors.WHITE)
+
+    # ---------- 保存 / 新增 / 返回 ----------
+    def on_back_click(e):
+        if state["is_dirty"]:
+            def on_save_and_exit(ev):
+                close_dialog(page, exit_dlg)
+                if not state["record_id"]: prompt_for_name(on_success_callback=lambda: on_back(e), is_exiting=True)
+                else: do_save(is_exiting=True); on_back(e)
+
+            exit_dlg = ft.AlertDialog(
+                title=ft.Text("提示"),
+                content=ft.Text("当前记录已修改，是否保存？"),
+                actions=[
+                    ft.TextButton(content=ft.Text("取消"), on_click=lambda ev: close_dialog(page, exit_dlg)),
+                    ft.TextButton(content=ft.Text("不保存"), on_click=lambda ev: close_dialog(page, exit_dlg) or on_back(e)),
+                    ft.Container(content=ft.Text("保存", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.BLUE_600, padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_save_and_exit, ink=True)
+                ]
+            )
+            open_dialog(page, exit_dlg)
+        else:
+            on_back(e)
+
+    def do_save(is_exiting=False):
+        data = dict(state["data"])
+        data["last_tab"] = state["last_tab"]
+        save_callback({
+            "id": state["record_id"], "name": state["record_name"], "type": "坐标转换",
+            "category": "常用换算", "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "data": data,
+        })
+        state["is_dirty"] = False
+
+    def prompt_for_name(on_success_callback=None, is_exiting=False):
+        name_input = ft.TextField(label="手簿名称", value=f"坐标转换-{datetime.datetime.now().strftime('%Y-%m-%d')}")
+
+        def on_confirm(ev):
+            new_name = name_input.value.strip()
+            if not new_name:
+                return
+            existing = next((r for r in (records_db or []) if r["name"] == new_name and r["id"] != state["record_id"]), None)
+            if existing:
+                def on_overwrite(e):
+                    state["record_name"] = new_name
+                    state["record_id"] = existing["id"]
+                    title_text.value = state["record_name"]
+                    close_dialog(page, overwrite_dlg)
+                    close_dialog(page, dlg)
+                    do_save(is_exiting=is_exiting)
+                    show_toast(page, f"已覆盖原有手簿: {state['record_name']}")
+                    if on_success_callback:
+                        on_success_callback()
+
+                overwrite_dlg = ft.AlertDialog(
+                    title=ft.Text("提示: 文件已存在", size=16, weight="bold"),
+                    content=ft.Text(f"存储库中已存在名为 '{new_name}' 的手簿。\n是否直接覆盖该文件？"),
+                    actions=[
+                        ft.TextButton(content=ft.Text("更改名称"), on_click=lambda e: close_dialog(page, overwrite_dlg)),
+                        ft.Container(content=ft.Text("覆盖原有文件", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.RED_500,
+                                     padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_overwrite, ink=True)
+                    ]
+                )
+                open_dialog(page, overwrite_dlg)
+            else:
+                state["record_name"] = new_name
+                state["record_id"] = state["record_id"] or f"CC_{datetime.datetime.now().timestamp()}"
+                title_text.value = state["record_name"]
+                close_dialog(page, dlg)
+                do_save(is_exiting=is_exiting)
+                show_toast(page, f"已保存: {state['record_name']}")
+                if on_success_callback:
+                    on_success_callback()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("保存并命名"),
+            content=name_input,
+            actions=[
+                ft.TextButton(content=ft.Text("取消"), on_click=lambda _: close_dialog(page, dlg)),
+                ft.Container(content=ft.Text("保存", color=ft.Colors.WHITE, weight="bold"), bgcolor=ft.Colors.BLUE_600,
+                             padding=ft.padding.Padding(15, 8, 15, 8), border_radius=5, on_click=on_confirm, ink=True)
+            ]
+        )
+        open_dialog(page, dlg)
+
+    def on_save_click(e):
+        has_result = any(k in state["data"] for k in ("fwd_result", "inv_result"))
+        if not has_result:
+            show_warning(page, "请先计算后再保存")
+            return
+        if not state["record_id"]:
+            prompt_for_name(is_exiting=False)
+        else:
+            do_save(is_exiting=False)
+            show_toast(page, "数据已更新")
+
+    def on_new_click(e):
+        if state["is_dirty"]:
+            do_save(is_exiting=True)
+            show_toast(page, "当前手簿已自动存档，开启新记录")
+        state["record_id"] = None
+        state["record_name"] = "未命名手簿"
+        state["data"] = {}
+        state["is_dirty"] = False
+        state["last_tab"] = 0
+        title_text.value = state["record_name"]
+        for tf in input_controls.values():
+            tf.value = ""
+        fwd_ell_dd.value = "CGCS2000"; inv_ell_dd.value = "CGCS2000"
+        switch_tab_visually(0)
+        calc_result_container.visible = False
+        page.update()
+
+    async def on_calc_click(e):
+        idx = state["last_tab"]
+        if idx == 0:  # BLH→XYH
+            ell = ELL_DISP_TO_KEY.get(fwd_ell_dd.value)
+            try:
+                B = dms2deg(fwd_b_f.value); L = dms2deg(fwd_l_f.value)
+            except Exception:
+                show_warning(page, "纬度/经度输入无效"); return
+            try:
+                H = float(fwd_h_f.value.strip())
+            except ValueError:
+                show_warning(page, "大地高 H 须为数值"); return
+            if not (-90 <= B <= 90 and -180 <= L <= 360):
+                show_warning(page, "B/L 超出合理范围（B∈[-90,90]）"); return
+            X, Y, Z = blh_to_xyz(B, L, H, ell)
+            show_result({"type": "fwd", "X": X, "Y": Y, "Z": Z}, "fwd_result")
+        else:  # XYH→BLH
+            ell = ELL_DISP_TO_KEY.get(inv_ell_dd.value)
+            try:
+                X = float(inv_x_f.value); Y = float(inv_y_f.value); Z = float(inv_z_f.value)
+            except ValueError:
+                show_warning(page, "X/Y/Z 须为数值"); return
+            try:
+                B, L, H = xyz_to_blh(X, Y, Z, ell)
+            except ValueError as ex:
+                show_warning(page, str(ex)); return
+            show_result({"type": "inv",
+                         "B": deg2dms_str(B, True, sec_prec=5),
+                         "L": deg2dms_str(L, True, sec_prec=5),
+                         "H": H}, "inv_result")
+
+    action_buttons = ft.Row([
+        ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, on_click=on_new_click, icon_color=ft.Colors.GREEN_600, tooltip="新建手簿"),
+        ft.IconButton(ft.Icons.SAVE_OUTLINED, on_click=on_save_click, icon_color=ft.Colors.BLUE_600, tooltip="保存"),
+    ], spacing=0)
+
+    header = ft.Container(content=ft.Row([
+        ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, on_click=on_back_click, icon_size=20),
+        title_text, action_buttons,
+    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=5, bgcolor=ft.Colors.WHITE, shadow=MD_HEADER_SHADOW)
+
+    scroll_content = ft.Column([tabs_header, fwd_content, inv_content, calc_result_container], scroll=ft.ScrollMode.AUTO)
+    scroll_wrapper = ft.Container(content=scroll_content, expand=True, padding=15)
+
+    footer = ft.Container(content=ft.Column([ft.Row([
+        ft.Container(content=ft.Text("计算", color=ft.Colors.WHITE, weight="bold", size=16),
+                     bgcolor=ft.Colors.BLUE_600, expand=True, height=45, alignment=ft.Alignment(0, 0),
+                     border_radius=8, on_click=on_calc_click, ink=True),
+    ])]), padding=10, bgcolor=ft.Colors.WHITE,
+        border=ft.border.Border(top=ft.border.BorderSide(1, ft.Colors.BLUE_GREY_100)))
+
+    switch_tab_visually(state["last_tab"])
+    key = {0: "fwd_result", 1: "inv_result"}[state["last_tab"]]
+    if key in state["data"]:
+        calc_result_container.content = ft.SelectionArea(content=render_cc_results(state["data"][key]))
+        calc_result_container.visible = True
+    else:
+        calc_result_container.visible = False
+
+    return ft.Column([header, scroll_wrapper, footer], expand=True, spacing=0)
