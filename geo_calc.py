@@ -1305,7 +1305,7 @@ def _fn_datum_adjust(edges, names, idx_of, qs_set=None):
                           "V": round((dh_adj - dh) * 1000.0, 2)})
     return {"sigma0": round(sigma0, 4), "r": r, "n_obs": n_obs, "u": u,
             "heights": heights, "heights_disp": heights_disp, "Q_diag": q_diag, "residuals": residuals,
-            "datum": datum, "qs_set": (None if qs_set is None else set(qs_set)),
+            "datum": datum, "qs_set": (None if qs_set is None else sorted(set(qs_set))),
             "warnings": []}
 
 

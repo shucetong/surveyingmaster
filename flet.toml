@@ -1,7 +1,7 @@
 [app]
 name = "数测通"
 description = "数字测图小助手"
-version = "2.0.1"
+version = "3.0.1"
 
 [build]
 project = "surveying_master"

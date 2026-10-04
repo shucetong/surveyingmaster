@@ -261,12 +261,12 @@ def main(page: ft.Page):
             close_dialog(page, bs)
             
         def confirm_delete(e):
-            if record in records_db: 
+            if record in records_db:
                 records_db.remove(record)
                 save_records(records_db)
+            close_bs(e)  # 先关弹层再重建列表:弹窗开着时全页更新会诱发安卓黑屏
             update_data_view()
-            close_bs(e)
-            show_toast(page, "手簿记录已删除")
+            show_toast(page, "手簿记录已删除", delay=0.4)
             
         def view_record(e):
             close_bs(e)
@@ -277,12 +277,12 @@ def main(page: ft.Page):
             name_input = ft.TextField(label="新名称", value=record["name"])
             def on_confirm(ev):
                 new_name = name_input.value.strip()
+                close_dialog(page, rename_dlg)  # 先关输入弹窗,再做列表刷新+toast
                 if new_name:
                     record["name"] = new_name
                     save_records(records_db)
                     update_data_view()
-                    show_toast(page, "更名成功")
-                close_dialog(page, rename_dlg)
+                    show_toast(page, "更名成功", delay=0.4)
                 
             rename_dlg = ft.AlertDialog(
                 title=ft.Text("更名"), content=name_input,
@@ -398,9 +398,12 @@ def main(page: ft.Page):
             msg = "未找到匹配的手簿。" if search_query else "暂无任何存储数据，请前往外业页面创建手簿。"
             data_list_container.controls.append(ft.Container(content=ft.Text(msg, color=ft.Colors.BLUE_GREY_400, italic=True), padding=20, alignment=ft.Alignment(0, 0)))
         else:
-            for record in reversed(filtered_records): 
+            for record in reversed(filtered_records):
                 data_list_container.controls.append(data_record_item(record))
-        page.update()
+        try:
+            data_list_container.update()  # 局部刷新:缩小渲染变更面,防弹窗开着时全页 diff 诱发安卓黑屏
+        except Exception:
+            page.update()
 
     # ---- 模块注册表（用于"用户设置"显隐控制，key 对应导航入口）----
     MODULE_DEFS = [
@@ -881,9 +884,9 @@ def main(page: ft.Page):
                     records_db.append(r)
                     restored += 1
             save_records(records_db)
+            close_overlay_panel()  # 先关备份面板再刷新列表+toast(与删除黑屏同款时序隐患)
             update_data_view()
-            show_toast(page, f"已恢复 {restored} 条手簿")
-            close_overlay_panel()
+            show_toast(page, f"已恢复 {restored} 条手簿", delay=0.4)
 
         def do_restore(ev):
             selected = [restore_records[i] for i in restore_cbs if restore_cbs[i].value]

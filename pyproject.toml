@@ -1,6 +1,6 @@
 [project]
 name = "shuce_tong"
-version = "2.0.1"
+version = "3.0.1"
 description = "数字测图小助手"
 dependencies = ["flet==0.86.1", "numpy", "flet_webview"]
 

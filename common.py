@@ -32,26 +32,39 @@ MD_HEADER_SHADOW = ft.BoxShadow(
 # 功能组件库 - 测绘核心数学算法与工具
 # =============================================================================
 
-# 全局兼容性函数：安全呼出控件 (兼容 Flet 旧版 overlay 与 新版 open API)
+# 全局兼容性函数：安全呼出控件
+# flet 0.86.1 已删除 page.open/close,官方机制为 page.show_dialog(专用弹窗栈,
+# 带生命周期管理)。旧版 hasattr(page,"open") 判定在新版恒为 False,会落到
+# 手动 overlay.append 淘汰路径——弹窗关后控件永久残留 overlay,且弹窗开着时
+# 全页刷新易诱发安卓黑屏,故主路改 show_dialog,overlay 仅作旧版兜底。
 def open_dialog(page, control):
-    if hasattr(page, "open"):
-        page.open(control)
-    else:
-        page.overlay.append(control)
-        control.open = True
-        page.update()
-
-# 全局兼容性函数：安全关闭控件
-def close_dialog(page, control):
-    if hasattr(page, "close"):
+    if hasattr(page, "show_dialog"):
         try:
-            page.close(control)
+            page.show_dialog(control)
+            return
+        except RuntimeError:
+            return  # 同一弹窗重复打开,直接忽略
         except Exception:
-            control.open = False
-            page.update()
-    else:
+            pass
+    page.overlay.append(control)
+    control.open = True
+    page.update()
+
+# 全局兼容性函数：安全关闭控件(按控件精确关闭,等价官方 pop 的收尾动作)
+def close_dialog(page, control):
+    try:
         control.open = False
-        page.update()
+        control.update()
+        return
+    except Exception:
+        pass
+    try:
+        if hasattr(page, "pop_dialog"):
+            page.pop_dialog()
+        else:
+            page.update()
+    except Exception:
+        pass
 
 async def safe_scroll(control, delta=None, offset=None, duration=300):
     """安全滚动协程：offset 为绝对像素（offset=-1 跳到末尾），delta 为相对像素。
@@ -70,13 +83,27 @@ async def safe_scroll(control, delta=None, offset=None, duration=300):
         pass
 
 
-def show_toast(page, text):
-    """用于保存、删除等常规操作的轻量级提示"""
+def show_toast(page, text, delay=0.0):
+    """用于保存、删除等常规操作的轻量级提示。
+
+    delay>0 时延迟弹出(秒):删除/更名等操作会接连发生"关窗动画→列表重建",
+    toast 挤在同一渲染窗口是安卓黑屏诱因之一,延迟等动画落定再单独出场。"""
+    def _fire():
+        try:
+            sb = ft.SnackBar(content=ft.Text(text), duration=2000)
+            open_dialog(page, sb)
+        except Exception:
+            pass
     try:
-        sb = ft.SnackBar(content=ft.Text(text), duration=2000)
-        open_dialog(page, sb)
+        if delay and delay > 0 and hasattr(page, "run_task"):
+            async def _later():
+                await asyncio.sleep(delay)
+                _fire()
+            page.run_task(_later)
+        else:
+            _fire()
     except Exception:
-        pass
+        _fire()
 
 def show_warning(page, msg):
     """采用绝对安全的 AlertDialog 弹窗来处理非法数据拦截提示"""
